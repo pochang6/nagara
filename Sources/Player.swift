@@ -137,12 +137,20 @@ final class Player {
         restart(from: currentIndex + 1)
     }
 
-    /// 速度を 1.0 → 1.2 → 1.5 → 1.0 と回す
+    /// 速度を1段ずつ上げ下げする。
+    ///
+    /// 以前は 1.0 → 1.2 → 1.5 → 1.0 と一方向に回していたが、
+    /// 上げすぎたときに戻すのに一周させられるのが苦痛だった。端では止まる（巻き戻らない）。
     @discardableResult
-    func cycleRate() -> Float {
-        let rates = settings.rates.isEmpty ? [1.0, 1.2, 1.5] : settings.rates
+    func stepRate(_ direction: Int) -> Float {
+        let ladder = settings.rateLadder.isEmpty ? [1.0, 1.2, 1.5] : settings.rateLadder.sorted()
         let current = rate
-        let next = rates.first { $0 > current + 0.001 } ?? rates[0]
+        let next: Float
+        if direction > 0 {
+            next = ladder.first { $0 > current + 0.001 } ?? ladder.last!
+        } else {
+            next = ladder.last { $0 < current - 0.001 } ?? ladder.first!
+        }
         rate = next
         Log.write("player: 速度 \(next)")
         return next
@@ -165,6 +173,8 @@ final class Player {
         prefetchTask?.cancel()
         prefetchTask = nil
         node.stop()
+        // stop() だけでは積んだぶんが残ることがある。reset() で明示的に捨てる
+        node.reset()
         buffers.removeAll()
         sentences = []
         scheduleIndex = 0

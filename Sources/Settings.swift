@@ -12,9 +12,7 @@ struct Settings: Codable {
     // rate は「いま使っている速度」であり、そのまま次の起動時の既定になる。
     // 一度 1.25 にすれば以後ずっと 1.25 で始まる。
     var rate: Float = 1.0
-    /// ⌃⌥→ で順に回る候補。少ないほうが押しやすいので既定は3つ
-    var rates: [Float] = [1.0, 1.2, 1.5]
-    /// メニューから直接選べる段階。細かく決め打ちしたいとき用。
+    /// ⌃⌥→ / ⌃⌥← で1段ずつ動く段階。メニューからも直接選べる。
     ///
     /// 1.0 未満を外してあるのは、TimePitch で引き伸ばすと音が濁って
     /// 「デジタルノイズ混じりのダースベイダー」になるため。実用になるのは 1.0〜1.5。
@@ -76,7 +74,6 @@ struct Settings: Codable {
         speakerId = value(.speakerId, fallback.speakerId)
         speakerLabel = value(.speakerLabel, fallback.speakerLabel)
         rate = value(.rate, fallback.rate)
-        rates = value(.rates, fallback.rates)
         rateLadder = value(.rateLadder, fallback.rateLadder)
         autoPlay = value(.autoPlay, fallback.autoPlay)
         port = value(.port, fallback.port)

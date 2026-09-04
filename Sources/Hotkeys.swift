@@ -11,12 +11,16 @@ import Foundation
 // 奪うと全アプリでタブ切り替えが壊れる。⌃⌥ 系はほぼ空いている。
 final class Hotkeys {
 
+    // 速度は「回す」のをやめ、1段ずつ上げ下げにした。
+    // 上げすぎたときに一周させられるのは、実際に使うと苦痛だった。
     enum Action: UInt32 {
         case toggle = 1     // ⌃⌥P  再生 / 一時停止
-        case rate = 2       // ⌃⌥→  速度を回す
-        case back = 3       // ⌃⌥←  1文戻る
-        case stop = 4       // ⌃⌥.  停止
-        case clipboard = 5  // ⌃⌥C  クリップボードを読む
+        case rateUp = 2     // ⌃⌥→  速く
+        case rateDown = 3   // ⌃⌥←  遅く
+        case back = 4       // ⌃⌥↑  1文戻る
+        case next = 5       // ⌃⌥↓  1文進む
+        case stop = 6       // ⌃⌥.  停止
+        case clipboard = 7  // ⌃⌥C  クリップボードを読む
     }
 
     private static weak var current: Hotkeys?
@@ -56,15 +60,17 @@ final class Hotkeys {
 
         let modifiers = UInt32(controlKey | optionKey)
         bind(keyCode: UInt32(kVK_ANSI_P), modifiers: modifiers, action: .toggle)
-        bind(keyCode: UInt32(kVK_RightArrow), modifiers: modifiers, action: .rate)
-        bind(keyCode: UInt32(kVK_LeftArrow), modifiers: modifiers, action: .back)
+        bind(keyCode: UInt32(kVK_RightArrow), modifiers: modifiers, action: .rateUp)
+        bind(keyCode: UInt32(kVK_LeftArrow), modifiers: modifiers, action: .rateDown)
+        bind(keyCode: UInt32(kVK_UpArrow), modifiers: modifiers, action: .back)
+        bind(keyCode: UInt32(kVK_DownArrow), modifiers: modifiers, action: .next)
         bind(keyCode: UInt32(kVK_ANSI_Period), modifiers: modifiers, action: .stop)
         // Electron 製のアプリ（Claude Code のデスクトップ版もそう）は
         // コンテキストメニューを自前で描くので、macOS のサービスが載らない。
         // ⌘C でコピーしてから ⌃⌥C、という経路ならどこでも通る
         bind(keyCode: UInt32(kVK_ANSI_C), modifiers: modifiers, action: .clipboard)
 
-        Log.write("hotkeys: ⌃⌥P / ⌃⌥→ / ⌃⌥← / ⌃⌥. / ⌃⌥C を登録した")
+        Log.write("hotkeys: ⌃⌥P 再生 / ⌃⌥→ 速く / ⌃⌥← 遅く / ⌃⌥↑ 前の文 / ⌃⌥↓ 次の文 / ⌃⌥. 停止 / ⌃⌥C クリップボード")
     }
 
     func unregister() {

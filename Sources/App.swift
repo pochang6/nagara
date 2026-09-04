@@ -127,8 +127,10 @@ final class Controller {
         case "/rate":
             if let rate = command.body["rate"] as? Double {
                 setRate(Float(rate))
+            } else if let step = command.body["step"] as? Int {
+                setRate(player.stepRate(step))
             } else {
-                setRate(player.cycleRate())
+                setRate(player.stepRate(1))
             }
             return status()
         case "/status", "/":
@@ -213,17 +215,22 @@ final class Controller {
     private var lastActionAt: [Hotkeys.Action: Date] = [:]
 
     private func perform(_ action: Hotkeys.Action) {
+        // 押したのに何も起きない、が一番困る。届いたことは必ず記録する
+        Log.write("hotkey: \(action)")
         // メニューを開いている間はグローバル側を黙らせていたが、
         // ステータス項目のメニューはキー等価物を拾わないので「開いている間は何も効かない」
-        // という結果になった。抑止はやめ、二重発火だけを時間で弾く
-        if let previous = lastActionAt[action], Date().timeIntervalSince(previous) < 0.2 {
+        // という結果になった。抑止はやめ、二重発火だけを短く弾く
+        if let previous = lastActionAt[action], Date().timeIntervalSince(previous) < 0.08 {
+            Log.write("hotkey: \(action) は連打として捨てた")
             return
         }
         lastActionAt[action] = Date()
         switch action {
         case .toggle: toggle()
-        case .rate: setRate(player.cycleRate())
+        case .rateUp: setRate(player.stepRate(1))
+        case .rateDown: setRate(player.stepRate(-1))
         case .back: player.previousSentence()
+        case .next: player.nextSentence()
         case .stop: player.stop()
         case .clipboard: speakClipboard()
         }

@@ -75,9 +75,12 @@ final class MenuBar: NSObject, NSMenuDelegate {
         play.isEnabled = controller.history.latest != nil || controller.player.state != .idle
         menu.addItem(play)
         menu.addItem(item("停止", #selector(stopAction), key: "."))
-        let back = item("1文戻る", #selector(backAction), key: Self.leftArrow)
+        let back = item("1文戻る", #selector(backAction), key: Self.upArrow)
         back.isEnabled = controller.player.state != .idle
         menu.addItem(back)
+        let next = item("1文進む", #selector(nextAction), key: Self.downArrow)
+        next.isEnabled = controller.player.state != .idle
+        menu.addItem(next)
 
         menu.addItem(.separator())
         menu.addItem(item("クリップボードを読む", #selector(clipboardAction), key: "c"))
@@ -129,21 +132,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     private func rateMenu() -> NSMenu {
         let submenu = NSMenu()
-        let cycle = controller.settings.rates
-        submenu.addItem(item("次の候補へ", #selector(rateCycleAction), key: Self.rightArrow))
+        submenu.addItem(item("速く", #selector(rateUpAction), key: Self.rightArrow))
+        submenu.addItem(item("遅く", #selector(rateDownAction), key: Self.leftArrow))
         submenu.addItem(.separator())
-        // 細かく決め打ちしたい人のために段階を並べる。
-        // ⌃⌥→ で回るのは短い候補だけなので、押しやすさは損なわれない
         for rate in controller.settings.rateLadder {
-            var title = rateLabel(rate)
-            if cycle.contains(where: { abs($0 - rate) < 0.001 }) { title += "  ·" }
-            let entry = item(title, #selector(rateAction))
+            let entry = item(rateLabel(rate), #selector(rateAction))
             entry.representedObject = rate
             entry.state = abs(controller.player.rate - rate) < 0.01 ? .on : .off
             submenu.addItem(entry)
         }
         submenu.addItem(.separator())
-        submenu.addItem(disabled("· は ⌃⌥→ で回る候補"))
         submenu.addItem(disabled("選んだ速度が次回の既定になります"))
         return submenu
     }
@@ -246,6 +244,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     private static let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
     private static let rightArrow = String(UnicodeScalar(NSRightArrowFunctionKey)!)
+    private static let upArrow = String(UnicodeScalar(NSUpArrowFunctionKey)!)
+    private static let downArrow = String(UnicodeScalar(NSDownArrowFunctionKey)!)
 
     private func disabled(_ title: String) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -270,8 +270,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
         controller.setRate(rate)
     }
 
-    @objc private func rateCycleAction() {
-        controller.setRate(controller.player.cycleRate())
+    @objc private func rateUpAction() {
+        controller.setRate(controller.player.stepRate(1))
+    }
+
+    @objc private func rateDownAction() {
+        controller.setRate(controller.player.stepRate(-1))
+    }
+
+    @objc private func nextAction() {
+        controller.player.nextSentence()
     }
 
     @objc private func clipboardAction() {
