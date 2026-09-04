@@ -22,16 +22,30 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     // MARK: - アイコン
 
+    // アイコンは「読み上げ」だと分かる吹き出しを基本形にしている。
+    // nobetsu が waveform 系を使っているので、そこと silhouette が被らないことを優先した。
+    // メニューバーに2つ並んだときに見分けられないと、どちらの常駐か分からなくなる。
+    private func symbolName() -> String {
+        switch controller.player.state {
+        case .playing: return "speaker.wave.2.fill"
+        case .paused: return "pause.circle.fill"
+        case .idle: return controller.unreadCount > 0 ? "text.bubble.fill" : "text.bubble"
+        }
+    }
+
     func refresh() {
         guard let button = statusItem.button else { return }
-        let symbol: String
-        switch controller.player.state {
-        case .playing: symbol = "waveform.circle.fill"
-        case .paused: symbol = "pause.circle"
-        case .idle: symbol = controller.unreadCount > 0 ? "waveform.badge.plus" : "waveform"
+        let name = symbolName()
+        if let image = NSImage(systemSymbolName: name, accessibilityDescription: "nagara") {
+            image.isTemplate = true
+            button.image = image
+        } else {
+            // 記号が無い OS でも、姿が消えて行方不明になるよりはまし
+            Log.write("menubar: シンボル \(name) が見つからない")
+            button.image = nil
+            button.title = "nagara"
+            return
         }
-        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: "nagara")
-        button.image?.isTemplate = true
         button.title = controller.unreadCount > 0 && controller.player.state == .idle
             ? " \(controller.unreadCount)" : ""
     }
