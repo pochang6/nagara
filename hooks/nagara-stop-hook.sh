@@ -64,18 +64,26 @@ for line in reversed(lines):
         if body.strip():
             last_assistant = body
     elif kind == "user" and last_assistant is not None:
-        last_user = text_of(record)
-        break
+        # ツールの実行結果も user 種別で記録される。本文が無いものは飛ばさないと、
+        # 本物のユーザー発言に辿り着く前に空文字で打ち切ってしまう
+        body = text_of(record)
+        if body.strip():
+            last_user = body
+            break
 
 if not last_assistant:
     sys.exit(0)
 
-# 「/speak」と打った直後の「再生しました」まで積むと、次にそれを朗読する羽目になる。
-# 操作のための往復はキューに入れない
-if last_user:
-    head = last_user.strip().lower()
-    if head.startswith(("/speak", "/stop", "/nagara")) or head in ("喋って", "しゃべって", "読んで"):
-        sys.exit(0)
+# 「/speak」と打った直後の「再生を始めました」まで積むと、次にそれを朗読する羽目になる。
+# 操作のための往復はキューに入れない。
+#
+# 発言の先頭が "/speak" かどうかで見てはいけない。会話ログに残るのはスラッシュコマンドの
+# **展開後の本文**（コマンドの出力＋指示文）であって、打った文字列ではない。
+# そこで commands/*.md に印を仕込み、それを探す。
+if last_user and "nagara:internal" in last_user:
+    sys.exit(0)
+if last_user and last_user.strip() in ("喋って", "しゃべって", "読んで", "止めて", "停止"):
+    sys.exit(0)
 
 body = json.dumps({
     "text": last_assistant,
