@@ -111,13 +111,17 @@ final class MenuBar: NSObject, NSMenuDelegate {
             let label = controller.player.state == .playing ? "再生中" : "一時停止"
             return "\(label)  \(min(progress.index + 1, progress.total))/\(progress.total)　\(rateLabel(controller.player.rate))"
         case .idle:
-            if controller.unreadCount > 0 { return "未読 \(controller.unreadCount) 件" }
+            if controller.unreadCount > 0 { return "未再生 \(controller.unreadCount) 件" }
             return controller.history.latest == nil ? "待機中（まだ届いていません）" : "待機中"
         }
     }
 
+    // 1.25 のような刻みを %.1f で出すと「1.3倍」になって嘘になる。
+    // 必要なぶんだけ小数を見せる
     private func rateLabel(_ rate: Float) -> String {
-        String(format: "%.1f倍", rate)
+        let hundredths = (rate * 100).rounded()
+        let format = hundredths.truncatingRemainder(dividingBy: 10) == 0 ? "%.1f倍" : "%.2f倍"
+        return String(format: format, rate)
     }
 
     private func rateMenu() -> NSMenu {
