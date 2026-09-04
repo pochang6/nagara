@@ -19,6 +19,15 @@ struct Settings: Codable {
     /// それ以上・以下を試したければ、この配列に手で足せば出る
     var rateLadder: [Float] = [1.0, 1.1, 1.2, 1.25, 1.35, 1.5]
 
+    // 音量。0.0〜1.0。
+    //
+    // 既定を 1.0 にしていないのは、合成音声がもともと大きめで、
+    // 聴くたびにシステム音量のほうを下げに行く羽目になったため。
+    // rate と同じく、いま使っている値がそのまま次回の既定になる。
+    var volume: Float = 0.8
+    /// ⌃⌥= / ⌃⌥- で1段ずつ動く段階。メニューからも直接選べる
+    var volumeLadder: [Float] = [0.2, 0.4, 0.6, 0.8, 0.9, 1.0]
+
     // 届いた端から喋り出すか。既定は OFF ＝ 黙って溜める
     var autoPlay: Bool = false
 
@@ -75,6 +84,8 @@ struct Settings: Codable {
         speakerLabel = value(.speakerLabel, fallback.speakerLabel)
         rate = value(.rate, fallback.rate)
         rateLadder = value(.rateLadder, fallback.rateLadder)
+        volume = value(.volume, fallback.volume)
+        volumeLadder = value(.volumeLadder, fallback.volumeLadder)
         autoPlay = value(.autoPlay, fallback.autoPlay)
         port = value(.port, fallback.port)
         engineURL = value(.engineURL, fallback.engineURL)

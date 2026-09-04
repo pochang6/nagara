@@ -38,11 +38,29 @@ final class Aivis {
     /// 最後に合成へ使った時刻。放置されたエンジンを落とす判断に使う
     private(set) var lastUsed = Date()
 
+    /// 自分で起こした時刻。起動直後の見え方を判断材料から外すために持つ。
+    /// 前回の nagara から引き継いだ場合は nil＝もう落ち着いている
+    private var launchedAt: Date?
+    private var ownedPID: pid_t?
+    private var activationObserver: NSObjectProtocol?
+
+    /// startHiding() が窓を押し戻している間（20秒）は隠れ／見えるが揺れる。
+    /// 少し余裕を持たせて、この秒数が過ぎるまでは見え方を見ない
+    private static let hideSettleSeconds: TimeInterval = 25
+
     init(settings: Settings) {
         self.settings = settings
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 60
         self.session = URLSession(configuration: config)
+        restoreOwnership()
+        watchForUserTakeover()
+    }
+
+    deinit {
+        if let activationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(activationObserver)
+        }
     }
 
     func update(settings: Settings) {
@@ -86,7 +104,7 @@ final class Aivis {
             throw AivisError.launchFailed
         }
         guard process.terminationStatus == 0 else { throw AivisError.launchFailed }
-        launchedByUs = true
+        claimOwnership()
 
         if settings.hideEngineOnLaunch { startHiding() }
 
@@ -95,6 +113,9 @@ final class Aivis {
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             if await isUp() {
                 Log.write("engine: \(attempt)秒で応答した")
+                // open の直後は runningApplications にまだ載っていないことがある。
+                // 応答したこの時点なら確実に載っている
+                rememberEnginePID()
                 lastUsed = Date()
                 return
             }
@@ -123,11 +144,107 @@ final class Aivis {
         !Self.runningEngines(named: settings.engineAppName).isEmpty
     }
 
+    // MARK: - 所有権
+
+    // 「nagara が起こしたエンジンだけを片付ける」を成立させるには、印を2つ持つ必要がある。
+    //
+    //  1. 起こしたのは自分か  ―― pid をファイルに書いて、プロセスをまたいで残す。
+    //     メモリだけに持つと、再ビルド・強制終了・クラッシュで nagara だけが入れ替わった
+    //     ときに、居座ったエンジンが「誰のものでもない」ことになって永久に落ちなくなる
+    //  2. あなたが使い始めていないか ―― nagara は隠して起こすので、
+    //     窓が出てきた／前面に来たなら、それはあなたが自分で使い始めたということ。
+    //     そこから先は触らない。**片道切符で、二度と取り返さない**
+    //
+    // 2 は「見えている＝作業中」と決めつける代理指標でしかない。AivisSpeech の API には
+    // 他のクライアントの利用状況を返す口が無いので、これ以上正確には測れない。
+    // 外れる方向が「落とさない」側なので、この妥協を選んだ。
+
+    private struct Ownership: Codable {
+        let pid: pid_t
+    }
+
+    private static let ownerFileURL =
+        Settings.directory.appendingPathComponent("engine-owner.json")
+
+    /// 前回の nagara が起こしたエンジンが、まだ同じ pid で生きていれば引き継ぐ
+    private func restoreOwnership() {
+        guard let data = try? Data(contentsOf: Self.ownerFileURL),
+              let owned = try? JSONDecoder().decode(Ownership.self, from: data)
+        else { return }
+        guard Self.runningEngines(named: settings.engineAppName)
+            .contains(where: { $0.processIdentifier == owned.pid })
+        else {
+            try? FileManager.default.removeItem(at: Self.ownerFileURL)
+            return
+        }
+        launchedByUs = true
+        ownedPID = owned.pid
+        Log.write("engine: 前回 nagara が起こしたエンジン (pid \(owned.pid)) を引き継いだ")
+    }
+
+    private func claimOwnership() {
+        launchedByUs = true
+        launchedAt = Date()
+        rememberEnginePID()
+    }
+
+    private func rememberEnginePID() {
+        guard launchedByUs, ownedPID == nil else { return }
+        guard let pid = Self.runningEngines(named: settings.engineAppName)
+            .first?.processIdentifier else { return }
+        ownedPID = pid
+        if let data = try? JSONEncoder().encode(Ownership(pid: pid)) {
+            try? data.write(to: Self.ownerFileURL, options: .atomic)
+        }
+    }
+
+    private func releaseOwnership(reason: String) {
+        guard launchedByUs else { return }
+        launchedByUs = false
+        ownedPID = nil
+        launchedAt = nil
+        try? FileManager.default.removeItem(at: Self.ownerFileURL)
+        Log.write("engine: \(reason)ので、以後 nagara からは終了させない")
+    }
+
+    /// 起こした直後は窓を押し戻している最中なので、見え方を判断材料にしない
+    private var hidingHasSettled: Bool {
+        guard let launchedAt else { return true }
+        return Date().timeIntervalSince(launchedAt) > Self.hideSettleSeconds
+    }
+
+    private func engineIsVisible() -> Bool {
+        Self.runningEngines(named: settings.engineAppName).contains { !$0.isHidden }
+    }
+
+    /// 前面に出てきた瞬間を拾う。隠したままの窓を Dock から呼び出した場合もここに来る
+    private func watchForUserTakeover() {
+        activationObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self, self.launchedByUs, self.hidingHasSettled else { return }
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
+                    as? NSRunningApplication,
+                  Self.isEngine(app, named: self.settings.engineAppName)
+            else { return }
+            self.releaseOwnership(reason: "AivisSpeech が前面に出た")
+        }
+    }
+
     /// 最後に使ってから十分に経っていれば落とす。
-    /// 自分で起こしたものだけが対象で、手で開かれたものには触らない
+    /// 自分で起こしたものだけが対象で、手で開かれたものにも、
+    /// あなたが途中から使い始めたものにも触らない
     @discardableResult
     func quitIfIdle() -> Bool {
         guard launchedByUs, settings.engineIdleQuitMinutes > 0 else { return false }
+        // 隠して起こしたはずのエンジンが姿を見せているなら、あなたが自分で開いたということ。
+        // 隠さない設定のときは見え方に意味が無いので、前面化の通知だけを頼りにする
+        if settings.hideEngineOnLaunch, hidingHasSettled, engineIsVisible() {
+            releaseOwnership(reason: "AivisSpeech の窓が開いた")
+            return false
+        }
         let idle = Date().timeIntervalSince(lastUsed)
         guard idle >= Double(settings.engineIdleQuitMinutes) * 60 else { return false }
         Log.write("engine: \(settings.engineIdleQuitMinutes)分使われなかったので終了させる")
@@ -147,13 +264,18 @@ final class Aivis {
         guard !running.isEmpty else { return false }
         for app in running { app.terminate() }
         launchedByUs = false
+        ownedPID = nil
+        launchedAt = nil
+        try? FileManager.default.removeItem(at: Self.ownerFileURL)
         return true
     }
 
+    private static func isEngine(_ app: NSRunningApplication, named name: String) -> Bool {
+        app.localizedName == name || app.bundleIdentifier?.contains("AivisSpeech") == true
+    }
+
     private static func runningEngines(named name: String) -> [NSRunningApplication] {
-        NSWorkspace.shared.runningApplications.filter {
-            $0.localizedName == name || $0.bundleIdentifier?.contains("AivisSpeech") == true
-        }
+        NSWorkspace.shared.runningApplications.filter { isEngine($0, named: name) }
     }
 
     // MARK: - 話者

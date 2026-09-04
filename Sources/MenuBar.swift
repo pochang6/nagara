@@ -87,6 +87,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
         menu.addItem(.separator())
         menu.addItem(submenu("速度", build: rateMenu()))
+        menu.addItem(submenu("音量", build: volumeMenu()))
         menu.addItem(submenu("声", build: speakerMenu()))
 
         let autoPlay = item("自動再生", #selector(autoPlayAction))
@@ -115,7 +116,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         case .playing, .paused:
             let progress = controller.player.progress
             let label = controller.player.state == .playing ? "再生中" : "一時停止"
-            return "\(label)  \(min(progress.index + 1, progress.total))/\(progress.total)　\(rateLabel(controller.player.rate))"
+            return "\(label)  \(min(progress.index + 1, progress.total))/\(progress.total)　\(rateLabel(controller.player.rate))　\(volumeLabel(controller.player.volume))"
         case .idle:
             if controller.unreadCount > 0 { return "未再生 \(controller.unreadCount) 件" }
             return controller.history.latest == nil ? "待機中（まだ届いていません）" : "待機中"
@@ -143,6 +144,26 @@ final class MenuBar: NSObject, NSMenuDelegate {
         }
         submenu.addItem(.separator())
         submenu.addItem(disabled("選んだ速度が次回の既定になります"))
+        return submenu
+    }
+
+    private func volumeLabel(_ volume: Float) -> String {
+        "\(Int((volume * 100).rounded()))%"
+    }
+
+    private func volumeMenu() -> NSMenu {
+        let submenu = NSMenu()
+        submenu.addItem(item("大きく", #selector(volumeUpAction), key: "="))
+        submenu.addItem(item("小さく", #selector(volumeDownAction), key: "-"))
+        submenu.addItem(.separator())
+        for volume in controller.settings.volumeLadder {
+            let entry = item(volumeLabel(volume), #selector(volumeAction))
+            entry.representedObject = volume
+            entry.state = abs(controller.player.volume - volume) < 0.005 ? .on : .off
+            submenu.addItem(entry)
+        }
+        submenu.addItem(.separator())
+        submenu.addItem(disabled("選んだ音量が次回の既定になります"))
         return submenu
     }
 
@@ -203,6 +224,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         let submenu = NSMenu()
         let running = controller.aivis.isEngineRunning
         submenu.addItem(disabled(running ? "● 起動中" : "○ 停止中"))
+        if running, !controller.aivis.launchedByUs {
+            // 「時間が来ても閉じない」がバグに見えないように、理由をその場に出す
+            submenu.addItem(disabled("　nagara のものではないので閉じません"))
+        }
         submenu.addItem(.separator())
         if running {
             submenu.addItem(item("いま終了する", #selector(quitEngineAction)))
@@ -268,6 +293,19 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func rateAction(_ sender: NSMenuItem) {
         guard let rate = sender.representedObject as? Float else { return }
         controller.setRate(rate)
+    }
+
+    @objc private func volumeAction(_ sender: NSMenuItem) {
+        guard let volume = sender.representedObject as? Float else { return }
+        controller.setVolume(volume)
+    }
+
+    @objc private func volumeUpAction() {
+        controller.setVolume(controller.player.stepVolume(1))
+    }
+
+    @objc private func volumeDownAction() {
+        controller.setVolume(controller.player.stepVolume(-1))
     }
 
     @objc private func rateUpAction() {

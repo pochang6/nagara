@@ -49,6 +49,14 @@ final class Player {
         set { timePitch.rate = max(0.5, min(3.0, newValue)) }
     }
 
+    /// 音量はプレイヤーノード側で変える。
+    /// mainMixerNode を触ると engine 全体の出力が動くので、こちらのほうが行儀がよい。
+    /// 再生中に変えてもその場で効く
+    var volume: Float {
+        get { node.volume }
+        set { node.volume = max(0.0, min(1.0, newValue)) }
+    }
+
     var progress: (index: Int, total: Int) { (currentIndex, sentences.count) }
 
     var currentSentence: String? {
@@ -64,6 +72,7 @@ final class Player {
         engine.connect(node, to: timePitch, format: format)
         engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         timePitch.rate = settings.rate
+        node.volume = settings.volume
         // 引き伸ばし・詰めのときの重ね合わせ回数。既定の 8 より上げると音の濁りが減る。
         // CPU は食うが、1本の音声を鳴らすだけなので気にする量ではない
         timePitch.overlap = 16
@@ -153,6 +162,23 @@ final class Player {
         }
         rate = next
         Log.write("player: 速度 \(next)")
+        return next
+    }
+
+    /// 音量を1段ずつ上げ下げする。速度と同じく端では止まる（巻き戻らない）
+    @discardableResult
+    func stepVolume(_ direction: Int) -> Float {
+        let ladder = settings.volumeLadder.isEmpty
+            ? [0.2, 0.4, 0.6, 0.8, 1.0] : settings.volumeLadder.sorted()
+        let current = volume
+        let next: Float
+        if direction > 0 {
+            next = ladder.first { $0 > current + 0.001 } ?? ladder.last!
+        } else {
+            next = ladder.last { $0 < current - 0.001 } ?? ladder.first!
+        }
+        volume = next
+        Log.write("player: 音量 \(Int((next * 100).rounded()))%")
         return next
     }
 

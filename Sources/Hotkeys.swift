@@ -21,6 +21,8 @@ final class Hotkeys {
         case next = 5       // ⌃⌥↓  1文進む
         case stop = 6       // ⌃⌥.  停止
         case clipboard = 7  // ⌃⌥C  クリップボードを読む
+        case volumeUp = 8   // ⌃⌥=  大きく
+        case volumeDown = 9 // ⌃⌥-  小さく
     }
 
     private static weak var current: Hotkeys?
@@ -69,8 +71,11 @@ final class Hotkeys {
         // コンテキストメニューを自前で描くので、macOS のサービスが載らない。
         // ⌘C でコピーしてから ⌃⌥C、という経路ならどこでも通る
         bind(keyCode: UInt32(kVK_ANSI_C), modifiers: modifiers, action: .clipboard)
+        // 音量は矢印が埋まっているので = / -。システム音量の ⌥ 系とは当たらない
+        bind(keyCode: UInt32(kVK_ANSI_Equal), modifiers: modifiers, action: .volumeUp)
+        bind(keyCode: UInt32(kVK_ANSI_Minus), modifiers: modifiers, action: .volumeDown)
 
-        Log.write("hotkeys: ⌃⌥P 再生 / ⌃⌥→ 速く / ⌃⌥← 遅く / ⌃⌥↑ 前の文 / ⌃⌥↓ 次の文 / ⌃⌥. 停止 / ⌃⌥C クリップボード")
+        Log.write("hotkeys: ⌃⌥P 再生 / ⌃⌥→ 速く / ⌃⌥← 遅く / ⌃⌥↑ 前の文 / ⌃⌥↓ 次の文 / ⌃⌥= 大きく / ⌃⌥- 小さく / ⌃⌥. 停止 / ⌃⌥C クリップボード")
     }
 
     func unregister() {

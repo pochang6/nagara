@@ -36,6 +36,7 @@ final class Controller {
         Log.write("nagara: 起動 (version \(Bundle.main.shortVersion))")
 
         player.rate = settings.rate
+        player.volume = settings.volume
         player.onStateChange = { [weak self] _ in self?.refreshUI() }
         player.onProgress = { [weak self] _, _ in self?.refreshUI() }
         player.onError = { [weak self] message in
@@ -133,6 +134,15 @@ final class Controller {
                 setRate(player.stepRate(1))
             }
             return status()
+        case "/volume":
+            if let volume = command.body["volume"] as? Double {
+                setVolume(Float(volume))
+            } else if let step = command.body["step"] as? Int {
+                setVolume(player.stepVolume(step))
+            } else {
+                setVolume(player.stepVolume(1))
+            }
+            return status()
         case "/status", "/":
             return status()
         default:
@@ -154,6 +164,7 @@ final class Controller {
             "ok": true,
             "state": stateName,
             "rate": (Double(player.rate) * 100).rounded() / 100,
+            "volume": (Double(player.volume) * 100).rounded() / 100,
             "sentence": progress.index,
             "sentences": progress.total,
             "unread": unreadCount,
@@ -235,6 +246,8 @@ final class Controller {
         case .next: player.nextSentence()
         case .stop: player.stop()
         case .clipboard: speakClipboard()
+        case .volumeUp: setVolume(player.stepVolume(1))
+        case .volumeDown: setVolume(player.stepVolume(-1))
         }
     }
 
@@ -259,6 +272,12 @@ final class Controller {
     func setRate(_ rate: Float) {
         player.rate = rate
         settings.rate = rate
+        persist()
+    }
+
+    func setVolume(_ volume: Float) {
+        player.volume = volume
+        settings.volume = player.volume
         persist()
     }
 

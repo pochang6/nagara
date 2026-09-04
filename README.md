@@ -107,11 +107,13 @@ Stop フックと `/speak` `/stop` が入ります。登録先は `~/.claude/set
 | 遅く（1段） | `⌃⌥←` |
 | 1文戻る | `⌃⌥↑` |
 | 1文進む | `⌃⌥↓` |
+| 大きく（1段） | `⌃⌥=` |
+| 小さく（1段） | `⌃⌥-` |
 | 停止 | `⌃⌥.` |
 | クリップボードを読む | `⌃⌥C` |
 
-`⌃` は Control、`⌥` は Option です。矢印は**左右が速さ、上下が文の移動**。
-速度は1段ずつ動き、端では止まります（一周しません）。
+`⌃` は Control、`⌥` は Option です。矢印は**左右が速さ、上下が文の移動**、
+`=` `-` が音量。速度も音量も1段ずつ動き、端では止まります（一周しません）。
 
 **覚えるのは `⌃⌥P` と `⌃⌥C` の2つで足ります。** 残りはメニューの右側に出ています。
 
@@ -148,6 +150,8 @@ nagara play | pause | toggle | stop | back | next
 nagara clipboard             # クリップボードの中身を読む
 nagara rate                  # 1段速く
 nagara rate 1.25             # 速度を指定する
+nagara volume                # 1段大きく
+nagara volume 0.6            # 音量を指定する（0.0〜1.0）
 nagara status                # いまの状態
 ```
 
@@ -196,6 +200,7 @@ Safari・Mail・メモ・テキストエディットのような素の AppKit �
 クリップボードを読む          ⌃⌥C
 ─────────────────────────
 速度 ▸ 速く ⌃⌥→ / 遅く ⌃⌥← / 1.0 … 1.5
+音量 ▸ 大きく ⌃⌥= / 小さく ⌃⌥- / 20% … 100%
 声   ▸ まい / コハク ▸ … / まお ▸ …
 □ 自動再生
 ─────────────────────────
@@ -235,8 +240,23 @@ nagara を終了
 
 - **一度起きたエンジンは置いておきます**（連続で使う日に毎回待たされないため）
 - ただし **15分使われなければ静かに落とします**（一度きりの日に居座らないため）
+  - 「15分」は**最後に1文を合成してから**の時間です。使うたびにゼロへ戻ります
+  - 再生中・一時停止中は数えません
 - **手で閉じたら追いかけません**（次に必要になったときだけ、また起こします）
 - 落とすのは**自分で起こしたエンジンだけ**。あなたが手で開いたものには触りません
+  - この印は pid でファイルに残るので、nagara を再起動しても引き継がれます
+- **あなたが AivisSpeech を使い始めたら、そこで手を引きます**
+
+nagara はエンジンを隠して起こすので、**窓が開いた／前面に出た**なら、それはあなたが
+自分で使い始めた合図です。以後そのエンジンは nagara の持ち物ではなくなり、
+15分たっても落としません。**これは片道で、取り返しません。**
+読み上げのついでに AivisSpeech で作業を始めたのに、その最中に落とされる、を防ぐためです。
+
+> 裏を返すと、**一度でも窓を開けたエンジンは自動では消えなくなります。**
+> 「見えている＝作業中」と決めつけているためで、AivisSpeech 側に
+> 「いま誰が使っているか」を返す API が無い以上、ここは代理指標に頼るしかありません。
+> 外れる方向を「落とさない」側に倒した、という妥協です。
+> 消したいときはメニューの「いま終了する」を使ってください。
 
 メニューから「起動したままにする」「nagara の終了時に閉じる」にも変えられます。
 
@@ -255,6 +275,8 @@ nagara を終了
 | `speakerId` | `1431611904` | 話者のスタイル ID（まい / ノーマル） |
 | `rate` | `1.0` | いまの再生速度。**そのまま次回の既定になります** |
 | `rateLadder` | `[1.0 … 1.5]` | `⌃⌥→` `⌃⌥←` で1段ずつ動く段階 |
+| `volume` | `0.8` | いまの音量。**そのまま次回の既定になります** |
+| `volumeLadder` | `[0.2 … 1.0]` | `⌃⌥=` `⌃⌥-` で1段ずつ動く段階 |
 | `autoPlay` | `false` | 届いた端から鳴らすか |
 | `port` | `17371` | 受け口。`127.0.0.1` にしか bind しません |
 | `engineURL` | `http://127.0.0.1:10101` | VOICEVOX なら `:50021` |
@@ -448,11 +470,14 @@ Copy any text and press `⌃⌥C`. That's it.
 | Slower (one step) | `⌃⌥←` |
 | Back one sentence | `⌃⌥↑` |
 | Forward one sentence | `⌃⌥↓` |
+| Louder (one step) | `⌃⌥=` |
+| Quieter (one step) | `⌃⌥-` |
 | Stop | `⌃⌥.` |
 | Read the clipboard | `⌃⌥C` |
 
-`⌃` is Control, `⌥` is Option. **Left/right is speed, up/down moves through sentences.**
-Speed moves one step at a time and stops at the ends — it does not wrap around.
+`⌃` is Control, `⌥` is Option. **Left/right is speed, up/down moves through sentences,
+`=` / `-` is volume.** Both speed and volume move one step at a time and stop at the
+ends — they do not wrap around.
 
 **You only need to remember two: `⌃⌥P` and `⌃⌥C`.** The rest are shown in the menu.
 
@@ -489,6 +514,8 @@ nagara play | pause | toggle | stop | back | next
 nagara clipboard             # read the clipboard
 nagara rate                  # one step faster
 nagara rate 1.25             # set the speed
+nagara volume                # one step louder
+nagara volume 0.6            # set the volume (0.0-1.0)
 nagara status                # current state
 ```
 
@@ -536,8 +563,9 @@ Forward one sentence         ⌃⌥↓
 ─────────────────────────
 Read the clipboard           ⌃⌥C
 ─────────────────────────
-Speed ▸ Faster ⌃⌥→ / Slower ⌃⌥← / 1.0 … 1.5
-Voice ▸ まい / コハク ▸ … / まお ▸ …
+Speed  ▸ Faster ⌃⌥→ / Slower ⌃⌥← / 1.0 … 1.5
+Volume ▸ Louder ⌃⌥= / Quieter ⌃⌥- / 20% … 100%
+Voice  ▸ まい / コハク ▸ … / まお ▸ …
 □ Auto-play
 ─────────────────────────
 History ▸ last 15 (click to play)
@@ -577,8 +605,22 @@ When it's needed, nagara launches it with `open -g -j` and waits for the models 
 
 - **Once running, it stays running** (so you don't wait again on a busy day)
 - But it is **quietly quit after 15 idle minutes** (so it doesn't squat all day)
+  - "15 minutes" counts from the **last sentence synthesized**, and resets on every use
+  - It never counts while playback is running or paused
 - **If you quit it by hand, nagara doesn't fight you** — it just starts it again next time
 - Only the engine **nagara itself started** is ever quit. One you opened is left alone
+  - That claim is stored on disk by pid, so it survives a restart of nagara
+- **The moment you start using AivisSpeech yourself, nagara lets go**
+
+nagara launches the engine hidden, so a **window appearing or the app coming to the front**
+means you have started using it. From then on nagara no longer owns that engine and will
+not quit it, however idle it goes. **This is one-way — nagara never takes it back.**
+It exists so the engine can't be pulled out from under you while you work in it.
+
+> The flip side: **an engine whose window you once opened will never auto-quit again.**
+> "Visible means in use" is an assumption, but AivisSpeech exposes no API for who is
+> using it, so a proxy is all there is. The error is deliberately biased toward not
+> quitting. Use "quit now" in the menu when you do want it gone.
 
 The menu offers "keep running" and "quit when nagara quits" instead.
 
@@ -597,6 +639,8 @@ The menu offers "keep running" and "quit when nagara quits" instead.
 | `speakerId` | `1431611904` | Voice style ID (まい / Normal) |
 | `rate` | `1.0` | Current speed. **This becomes the default next launch** |
 | `rateLadder` | `[1.0 … 1.5]` | Steps that `⌃⌥→` / `⌃⌥←` move through |
+| `volume` | `0.8` | Current volume. **This becomes the default next launch** |
+| `volumeLadder` | `[0.2 … 1.0]` | Steps that `⌃⌥=` / `⌃⌥-` move through |
 | `autoPlay` | `false` | Play on arrival |
 | `port` | `17371` | Ingest port. Binds to `127.0.0.1` only |
 | `engineURL` | `http://127.0.0.1:10101` | Use `:50021` for VOICEVOX |
