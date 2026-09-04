@@ -160,6 +160,8 @@ final class Controller {
             "autoPlay": settings.autoPlay,
             "speaker": settings.speakerLabel,
             "engineRunning": aivis.isEngineRunning,
+            "loginItem": LoginItem.isEnabled,
+            "version": Bundle.main.shortVersion,
         ]
     }
 

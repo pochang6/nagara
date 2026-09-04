@@ -15,8 +15,18 @@ PORT="${NAGARA_PORT:-17371}"
 export NAGARA_PORT="$PORT"
 PAYLOAD="$(cat)"
 
-# 本体が起きていなければ何もしない。フックが理由で Claude Code が止まるのは避ける
-curl -sS -m 1 "http://127.0.0.1:$PORT/status" >/dev/null 2>&1 || exit 0
+# 本体が落ちていたら起こす。ただし待つのは 3 秒まで。
+# 「使いたいときに黙って何も溜まっていない」のは困るが、
+# フックが理由で Claude Code が待たされるのはもっと困る。諦めが肝心
+if ! curl -sS -m 1 "http://127.0.0.1:$PORT/status" >/dev/null 2>&1; then
+  [ -d /Applications/nagara.app ] && open -g -a /Applications/nagara.app 2>/dev/null || true
+  up=0
+  for _ in 1 2 3 4 5 6; do
+    sleep 0.5
+    if curl -sS -m 1 "http://127.0.0.1:$PORT/status" >/dev/null 2>&1; then up=1; break; fi
+  done
+  [ "$up" = "1" ] || exit 0
+fi
 
 printf '%s' "$PAYLOAD" | python3 -c '
 import json, os, sys, urllib.request
