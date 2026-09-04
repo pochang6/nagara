@@ -118,6 +118,9 @@ final class Controller {
         case "/back":
             player.previousSentence()
             return status()
+        case "/clipboard":
+            speakClipboard()
+            return status()
         case "/next":
             player.nextSentence()
             return status()
@@ -207,10 +210,16 @@ final class Controller {
         }
     }
 
+    private var lastActionAt: [Hotkeys.Action: Date] = [:]
+
     private func perform(_ action: Hotkeys.Action) {
-        // メニューを開いている間は、メニュー項目側のキー等価物が同じ操作を担う。
-        // 両方が反応すると2回動いて何も起きていないように見える
-        guard !menuIsOpen else { return }
+        // メニューを開いている間はグローバル側を黙らせていたが、
+        // ステータス項目のメニューはキー等価物を拾わないので「開いている間は何も効かない」
+        // という結果になった。抑止はやめ、二重発火だけを時間で弾く
+        if let previous = lastActionAt[action], Date().timeIntervalSince(previous) < 0.2 {
+            return
+        }
+        lastActionAt[action] = Date()
         switch action {
         case .toggle: toggle()
         case .rate: setRate(player.cycleRate())
@@ -220,14 +229,14 @@ final class Controller {
         }
     }
 
-    var menuIsOpen = false
-
     /// クリップボードの中身を読む。
     /// 右クリックのサービスが載らないアプリ（Electron 製など）でも、この経路なら通る
     func speakClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string),
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {
+            // 黙って何も起きないのが一番困る。理由は必ず残す
+            Log.write("clipboard: 文字列が入っていないので読めない")
             lastError = "クリップボードが空です"
             refreshUI()
             return

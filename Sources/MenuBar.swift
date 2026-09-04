@@ -148,16 +148,6 @@ final class MenuBar: NSObject, NSMenuDelegate {
         return submenu
     }
 
-    // MARK: - メニューの開閉
-
-    func menuWillOpen(_ menu: NSMenu) {
-        controller.menuIsOpen = true
-    }
-
-    func menuDidClose(_ menu: NSMenu) {
-        controller.menuIsOpen = false
-    }
-
     private func speakerMenu() -> NSMenu {
         let submenu = NSMenu()
         guard !controller.speakers.isEmpty else {

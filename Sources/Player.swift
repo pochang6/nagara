@@ -64,6 +64,9 @@ final class Player {
         engine.connect(node, to: timePitch, format: format)
         engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         timePitch.rate = settings.rate
+        // 引き伸ばし・詰めのときの重ね合わせ回数。既定の 8 より上げると音の濁りが減る。
+        // CPU は食うが、1本の音声を鳴らすだけなので気にする量ではない
+        timePitch.overlap = 16
         engine.prepare()
     }
 
@@ -167,6 +170,10 @@ final class Player {
         scheduleIndex = 0
         currentIndex = 0
         scheduledCount = 0
+        // 状態も戻すこと。ここを .playing のままにすると、
+        // 再生中に load したとき play() の「すでに再生中なら何もしない」に弾かれて
+        // 黙って止まる。声を切り替えたら再生が止まる、という形で出た
+        state = .idle
     }
 
     private func restart(from index: Int) {

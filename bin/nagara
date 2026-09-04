@@ -63,7 +63,7 @@ if [ "${1:-}" = "--now" ]; then
 fi
 
 case "${1:-}" in
-  play|pause|toggle|stop|back|next)
+  play|pause|toggle|stop|back|next|clipboard)
     ensure_app
     post "/$1"
     echo
