@@ -49,7 +49,7 @@ final class Controller {
 
         let provider = ServicesProvider { [weak self] text in
             // 選択して読ませたのだから、これは黙って積まずにすぐ鳴らす
-            self?.speak(text: text, source: "選択テキスト", autoplay: true)
+            self?.speak(text: text, source: "選択テキスト", autoplay: true, force: true)
         }
         servicesProvider = provider
         NSApp.servicesProvider = provider
@@ -163,8 +163,8 @@ final class Controller {
     /// テキストを受け取る。既定では**鳴らさず積むだけ**。
     /// これが「応答のたびに喋られてうざい」を避けるための一番大事な既定値。
     @discardableResult
-    func speak(text: String, source: String, autoplay: Bool? = nil) -> Bool {
-        guard let item = history.add(text: text, source: source) else { return false }
+    func speak(text: String, source: String, autoplay: Bool? = nil, force: Bool = false) -> Bool {
+        guard let item = history.add(text: text, source: source, force: force) else { return false }
         unreadCount += 1
         let shouldPlay = autoplay ?? settings.autoPlay
         if shouldPlay {
@@ -208,12 +208,32 @@ final class Controller {
     }
 
     private func perform(_ action: Hotkeys.Action) {
+        // メニューを開いている間は、メニュー項目側のキー等価物が同じ操作を担う。
+        // 両方が反応すると2回動いて何も起きていないように見える
+        guard !menuIsOpen else { return }
         switch action {
         case .toggle: toggle()
         case .rate: setRate(player.cycleRate())
         case .back: player.previousSentence()
         case .stop: player.stop()
+        case .clipboard: speakClipboard()
         }
+    }
+
+    var menuIsOpen = false
+
+    /// クリップボードの中身を読む。
+    /// 右クリックのサービスが載らないアプリ（Electron 製など）でも、この経路なら通る
+    func speakClipboard() {
+        guard let text = NSPasteboard.general.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            lastError = "クリップボードが空です"
+            refreshUI()
+            return
+        }
+        Log.write("clipboard: \(text.count)文字を読む")
+        speak(text: text, source: "クリップボード", autoplay: true, force: true)
     }
 
     // MARK: - 設定

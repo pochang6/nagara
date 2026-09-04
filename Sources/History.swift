@@ -38,13 +38,16 @@ final class History {
 
     /// 積むかどうかを決める。
     /// 「再生しました」のような短い操作応答まで朗読するようになると使い物にならない
+    /// `force` は本人が明示的に読ませたとき（選択テキスト・クリップボード）に使う。
+    /// 短さの足切りは「了解しました」を朗読しないためのものなので、
+    /// 自分で選んだ数文字まで弾いてしまっては本末転倒になる
     @discardableResult
-    func add(text: String, source: String) -> Utterance? {
+    func add(text: String, source: String, force: Bool = false) -> Utterance? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
 
         let speakable = Sanitizer.speakable(from: trimmed, skipCodeBlocks: settings.skipCodeBlocks)
-        guard speakable.count >= settings.minimumLength else {
+        guard force || speakable.count >= settings.minimumLength else {
             Log.write("history: 短すぎるので積まない (\(speakable.count)文字)")
             return nil
         }

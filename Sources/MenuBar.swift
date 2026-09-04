@@ -75,9 +75,12 @@ final class MenuBar: NSObject, NSMenuDelegate {
         play.isEnabled = controller.history.latest != nil || controller.player.state != .idle
         menu.addItem(play)
         menu.addItem(item("停止", #selector(stopAction), key: "."))
-        let back = item("1文戻る", #selector(backAction), key: String(UnicodeScalar(NSLeftArrowFunctionKey)!))
+        let back = item("1文戻る", #selector(backAction), key: Self.leftArrow)
         back.isEnabled = controller.player.state != .idle
         menu.addItem(back)
+
+        menu.addItem(.separator())
+        menu.addItem(item("クリップボードを読む", #selector(clipboardAction), key: "c"))
 
         menu.addItem(.separator())
         menu.addItem(submenu("速度", build: rateMenu()))
@@ -101,7 +104,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.addItem(item("ログを開く", #selector(openLogAction)))
 
         menu.addItem(.separator())
-        menu.addItem(item("nagara を終了", #selector(quitAction), key: "q"))
+        menu.addItem(item("nagara を終了", #selector(quitAction), key: "q", modifiers: [.command]))
     }
 
     private func statusLine() -> String {
@@ -127,6 +130,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private func rateMenu() -> NSMenu {
         let submenu = NSMenu()
         let cycle = controller.settings.rates
+        submenu.addItem(item("次の候補へ", #selector(rateCycleAction), key: Self.rightArrow))
+        submenu.addItem(.separator())
         // 細かく決め打ちしたい人のために段階を並べる。
         // ⌃⌥→ で回るのは短い候補だけなので、押しやすさは損なわれない
         for rate in controller.settings.rateLadder {
@@ -141,6 +146,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
         submenu.addItem(disabled("· は ⌃⌥→ で回る候補"))
         submenu.addItem(disabled("選んだ速度が次回の既定になります"))
         return submenu
+    }
+
+    // MARK: - メニューの開閉
+
+    func menuWillOpen(_ menu: NSMenu) {
+        controller.menuIsOpen = true
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        controller.menuIsOpen = false
     }
 
     private func speakerMenu() -> NSMenu {
@@ -223,14 +238,24 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     // MARK: - 部品
 
-    private func item(_ title: String, _ action: Selector, key: String = "") -> NSMenuItem {
+    // ショートカットはメニューの右側に薄く出す。忘れたときに確かめる場所が要る。
+    // キー等価物を実際に設定することで、AppKit が標準の見た目で右寄せに描いてくれる。
+    // 副作用としてメニューを開いている間はこちらでも反応するので、
+    // その間はグローバルホットキー側を黙らせている（Controller.menuIsOpen）
+    private func item(
+        _ title: String,
+        _ action: Selector,
+        key: String = "",
+        modifiers: NSEvent.ModifierFlags = [.control, .option]
+    ) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: action, keyEquivalent: key)
         entry.target = self
-        // ショートカットはグローバルホットキーで受けているので、メニュー側は表示しない
-        entry.keyEquivalentModifierMask = []
-        entry.keyEquivalent = ""
+        entry.keyEquivalentModifierMask = key.isEmpty ? [] : modifiers
         return entry
     }
+
+    private static let leftArrow = String(UnicodeScalar(NSLeftArrowFunctionKey)!)
+    private static let rightArrow = String(UnicodeScalar(NSRightArrowFunctionKey)!)
 
     private func disabled(_ title: String) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
@@ -253,6 +278,14 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func rateAction(_ sender: NSMenuItem) {
         guard let rate = sender.representedObject as? Float else { return }
         controller.setRate(rate)
+    }
+
+    @objc private func rateCycleAction() {
+        controller.setRate(controller.player.cycleRate())
+    }
+
+    @objc private func clipboardAction() {
+        controller.speakClipboard()
     }
 
     @objc private func autoPlayAction() {

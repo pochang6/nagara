@@ -16,14 +16,8 @@ final class Hotkeys {
         case rate = 2       // ⌃⌥→  速度を回す
         case back = 3       // ⌃⌥←  1文戻る
         case stop = 4       // ⌃⌥.  停止
+        case clipboard = 5  // ⌃⌥C  クリップボードを読む
     }
-
-    static let descriptions: [(Action, String)] = [
-        (.toggle, "⌃⌥P"),
-        (.rate, "⌃⌥→"),
-        (.back, "⌃⌥←"),
-        (.stop, "⌃⌥."),
-    ]
 
     private static weak var current: Hotkeys?
 
@@ -65,8 +59,12 @@ final class Hotkeys {
         bind(keyCode: UInt32(kVK_RightArrow), modifiers: modifiers, action: .rate)
         bind(keyCode: UInt32(kVK_LeftArrow), modifiers: modifiers, action: .back)
         bind(keyCode: UInt32(kVK_ANSI_Period), modifiers: modifiers, action: .stop)
+        // Electron 製のアプリ（Claude Code のデスクトップ版もそう）は
+        // コンテキストメニューを自前で描くので、macOS のサービスが載らない。
+        // ⌘C でコピーしてから ⌃⌥C、という経路ならどこでも通る
+        bind(keyCode: UInt32(kVK_ANSI_C), modifiers: modifiers, action: .clipboard)
 
-        Log.write("hotkeys: ⌃⌥P / ⌃⌥→ / ⌃⌥← / ⌃⌥. を登録した")
+        Log.write("hotkeys: ⌃⌥P / ⌃⌥→ / ⌃⌥← / ⌃⌥. / ⌃⌥C を登録した")
     }
 
     func unregister() {
