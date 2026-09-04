@@ -1,0 +1,102 @@
+#!/bin/bash
+# nagara — メニューバーで待っている本体へテキストと操作を投げる CLI。
+#
+# 本体は「投げ込まれたテキストだけを読む」ので、送り元は何でもよい。
+# Claude Code のフックでも、Codex でも、cron でも、自作スクリプトでも。
+#
+#   nagara "読ませたい文章"      積むだけ（既定。鳴らない）
+#   echo ... | nagara            標準入力から積む
+#   nagara --now "すぐ読んで"     積んですぐ鳴らす
+#   nagara play | pause | toggle | stop | back | next
+#   nagara rate            速度を 1.0 → 1.2 → 1.5 と回す
+#   nagara rate 1.5        速度を指定する
+#   nagara status          いまの状態を JSON で見る
+set -euo pipefail
+
+PORT="${NAGARA_PORT:-17371}"
+HOST="127.0.0.1"
+SOURCE="${NAGARA_SOURCE:-cli}"
+
+post() {
+  local path="$1" body="${2:-{\}}"
+  curl -sS -m 20 -X POST "http://$HOST:$PORT$path" \
+    -H 'Content-Type: application/json' \
+    -d "$body"
+}
+
+die() {
+  echo "nagara: $1" >&2
+  exit 1
+}
+
+# 本体が起きていなければ、まず起こす。使いたいときに迷子になるのが一番困る
+ensure_app() {
+  if curl -sS -m 1 "http://$HOST:$PORT/status" >/dev/null 2>&1; then
+    return 0
+  fi
+  if [ -d /Applications/nagara.app ]; then
+    open -g -a /Applications/nagara.app 2>/dev/null || true
+    for _ in $(seq 1 20); do
+      sleep 0.25
+      curl -sS -m 1 "http://$HOST:$PORT/status" >/dev/null 2>&1 && return 0
+    done
+  fi
+  die "本体が応答しません（/Applications/nagara.app を起動してください）"
+}
+
+json_text() {
+  # 引用符や改行を安全に JSON へ入れる
+  python3 -c '
+import json, sys
+print(json.dumps({
+    "text": sys.stdin.read(),
+    "source": sys.argv[1],
+    **({"autoplay": True} if sys.argv[2] == "1" else {}),
+}, ensure_ascii=False))
+' "$SOURCE" "$1"
+}
+
+AUTOPLAY=0
+if [ "${1:-}" = "--now" ]; then
+  AUTOPLAY=1
+  shift
+fi
+
+case "${1:-}" in
+  play|pause|toggle|stop|back|next)
+    ensure_app
+    post "/$1"
+    echo
+    ;;
+  rate)
+    ensure_app
+    if [ -n "${2:-}" ]; then
+      post "/rate" "{\"rate\": $2}"
+    else
+      post "/rate"
+    fi
+    echo
+    ;;
+  status)
+    ensure_app
+    post "/status"
+    echo
+    ;;
+  -h|--help)
+    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+    ;;
+  "")
+    # 引数なしは標準入力から。 … | nagara という形
+    [ -t 0 ] && die "読ませるテキストがありません（nagara --help）"
+    ensure_app
+    BODY="$(json_text "$AUTOPLAY")"
+    post "/speak" "$BODY"
+    echo
+    ;;
+  *)
+    ensure_app
+    BODY="$(printf '%s' "$*" | json_text "$AUTOPLAY")"
+    post "/speak" "$BODY"
+    echo
+    ;;
+esac
