@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreAudio
 import Foundation
 
 // 再生の中身。nagara の存在意義はここに集約されている。
@@ -33,6 +34,9 @@ final class Player {
     private var scheduledCount = 0
     private var generation = 0             // 停止・シーク後に古い完了通知を捨てるための世代
     private var prefetchTask: Task<Void, Never>?
+    private var configObserver: NSObjectProtocol?
+    private var deviceListener: AudioObjectPropertyListenerBlock?
+    private var pausedNeedsReschedule = false
 
     private let prefetchDepth = 3
 
@@ -77,6 +81,33 @@ final class Player {
         // CPU は食うが、1本の音声を鳴らすだけなので気にする量ではない
         timePitch.overlap = 16
         engine.prepare()
+
+        // 出力先が変わったらつなぎ直す。
+        //
+        // AirPods をケースに戻す、ヘッドフォンを挿す、外部ディスプレイを抜く。
+        // このとき AUHAL は既定の出力デバイスを勝手に差し替えるが、グラフ側は
+        // 前のデバイスのフレーム数（mMaxFramesPerSlice）のまま取り残される。
+        // 結果 render err -10874 (kAudioUnitErr_TooManyFramesToProcess) が
+        // 毎コールバック出続け、engine.isRunning は true のまま音だけが消える。
+        // 完了通知も来ないので次の文へ進まず、アプリを再起動するまで無音になる。
+        // 実際にこれで半日気づかず黙っていたことがあるので、必ず拾うこと
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
+        ) { [weak self] _ in
+            self?.handleConfigurationChange()
+        }
+        watchDefaultOutputDevice()
+    }
+
+    deinit {
+        if let configObserver {
+            NotificationCenter.default.removeObserver(configObserver)
+        }
+        if let deviceListener {
+            var address = Player.defaultOutputAddress
+            AudioObjectRemovePropertyListenerBlock(
+                AudioObjectID(kAudioObjectSystemObject), &address, .main, deviceListener)
+        }
     }
 
     func update(settings: Settings) {
@@ -100,6 +131,13 @@ final class Player {
         }
         if state == .paused {
             startEngineIfNeeded()
+            // つなぎ直しで積んだぶんを捨てているなら、node.play() では何も鳴らない。
+            // 止まっていた文から積み直す
+            if pausedNeedsReschedule {
+                pausedNeedsReschedule = false
+                restart(from: currentIndex)
+                return
+            }
             node.play()
             state = .playing
             return
@@ -184,6 +222,83 @@ final class Player {
 
     // MARK: - 内部
 
+    private static var defaultOutputAddress = AudioObjectPropertyAddress(
+        mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+        mScope: kAudioObjectPropertyScopeGlobal,
+        mElement: kAudioObjectPropertyElementMain)
+
+    /// 既定の出力デバイスの入れ替わりを HAL から直に見張る。
+    ///
+    /// AVAudioEngine の configuration change 通知だけでは足りない。
+    /// スピーカー → AirPods のように AUHAL が自力で引き継げる乗り換えでは通知が飛ばず、
+    /// 引き継ぎに失敗する組み合わせ（前のデバイスのフレーム数が残る）でも飛ぶ保証がない。
+    /// デバイスの入れ替わり自体は必ずここへ来るので、こちらを本線にする
+    private func watchDefaultOutputDevice() {
+        var address = Player.defaultOutputAddress
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            self?.checkOutputAfterDeviceChange()
+        }
+        deviceListener = block
+        AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &address, .main, block)
+    }
+
+    /// 乗り換えが成功したかを、鳴っている時間が進んでいるかで見分ける。
+    ///
+    /// うまく引き継げているなら何もしない（音を途切れさせない）。
+    /// 引き継ぎに失敗したときは render が毎回エラーを返すだけで例外も通知も出ず、
+    /// engine.isRunning は true のまま時間だけが止まる。そこを見て作り直す
+    private func checkOutputAfterDeviceChange() {
+        guard state == .playing else { return }
+        let before = node.lastRenderTime?.sampleTime
+        let generationAtCheck = generation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self,
+                  self.generation == generationAtCheck,
+                  self.state == .playing
+            else { return }
+            if let before, let after = self.node.lastRenderTime?.sampleTime, after > before {
+                return
+            }
+            Log.write("player: 出力先の乗り換えで音が止まった")
+            self.handleConfigurationChange()
+        }
+    }
+
+    /// 出力先が変わったあと、グラフを作り直して鳴っていた文から再開する。
+    /// 接続は張り直さないと古いフレーム数のままになるので、外して張り直す
+    private func handleConfigurationChange() {
+        Log.write("player: 出力先が変わった。engine をつなぎ直す")
+
+        let wasPlaying = state == .playing
+        let wasPaused = state == .paused
+        let resumeIndex = currentIndex
+
+        generation &+= 1          // 古いグラフからの完了通知は捨てる
+        prefetchTask?.cancel()
+        prefetchTask = nil
+        engine.stop()
+        node.stop()
+        node.reset()
+        engine.disconnectNodeOutput(node)
+        engine.disconnectNodeOutput(timePitch)
+        engine.connect(node, to: timePitch, format: format)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: format)
+        engine.prepare()
+
+        scheduleIndex = resumeIndex
+        scheduledCount = 0
+
+        if wasPlaying, !sentences.isEmpty {
+            restart(from: resumeIndex)
+        } else {
+            state = wasPaused ? .paused : .idle
+            // 一時停止のまま待つ場合も、積んだぶんは消えている。
+            // 再開のときに積み直す必要があることを覚えておく
+            pausedNeedsReschedule = wasPaused
+        }
+    }
+
     private func startEngineIfNeeded() {
         guard !engine.isRunning else { return }
         do {
@@ -198,6 +313,7 @@ final class Player {
         generation &+= 1
         prefetchTask?.cancel()
         prefetchTask = nil
+        pausedNeedsReschedule = false
         node.stop()
         // stop() だけでは積んだぶんが残ることがある。reset() で明示的に捨てる
         node.reset()
