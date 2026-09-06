@@ -292,8 +292,39 @@ curl -s -X POST "http://127.0.0.1:10101/user_dict_word\
 - 登録前に実際の読みを確かめるなら `POST /audio_query` の `accent_phrases` のモーラを見ます
 - **この辞書は AivisSpeech 全体で共有されます。** nagara 専用ではありません
 
-nagara 側に辞書機能は置いていません。読みの管理はエンジンの仕事で、
+nagara 側に辞書は持っていません。読みの管理はエンジンの仕事で、
 そこへ頼む相手はもう画面の中にいるからです。
+
+### 気づく前に、拾わせる（既定オフ）
+
+気づいたときに言うのでも直りますが、**気づかないまま流れていくもののほうが多い**はずです。
+そこで、読んだ文章から**怪しい読みを自動で拾う**見張りを付けました。
+
+```json
+"readingCheck": true
+```
+
+`settings.json` でこれを立てると、読み上げるたびに文章の中の語を拾い、
+**AivisSpeech の読みと macOS 側の読みを突き合わせて、食い違ったものだけ**を溜めます。
+
+- AivisSpeech の読みは `audio_query` が返すモーラ。実際に喋られる読みそのものです
+- macOS 側は `CFStringTokenizer` の読み推定。権限も通信も要りません
+- **どちらが正しいかは決めません。** 実際どちらも外します
+  （「担々麺」は macOS が、「再生中」は AivisSpeech が外しました）
+
+```bash
+nagara yomi                      # 溜まっている候補
+nagara yomi check "調べたい文章"   # その場で調べる
+nagara yomi dict                 # いまの辞書
+nagara yomi add 生中継 ナマチュウケイ 0   # 登録する
+nagara yomi skip 明日             # 見送る（次から出さない）
+nagara yomi rm <uuid>            # 辞書から消す
+```
+
+判断はエージェントがやります。Claude Code には **`/yomi`** が入り、さらに
+`UserPromptSubmit` フックが候補を勝手に渡すので、**あなたが何も言わなくても
+次の返事のついでに片付きます。** 人名のように文脈で読みが変わる語は登録せず
+見送るよう指示してあります（辞書は AivisSpeech 全体で共有されるためです）。
 > 完全に消すには GUI を持たない AivisSpeech-Engine 単体版に差し替える必要があります。
 
 ---
@@ -352,15 +383,27 @@ tail -f ~/Library/Logs/nagara.log
 
 - 任意の位置へのシーク（動けるのは1文ずつ）
 - メディアキー・コントロールセンターからの操作（Now Playing 未対応）
-- **Codex 連携**（CLI と `⌃⌥C` では今でも使えます）
 - アバター表示
 
-Codex については目処が立っています。Codex には `~/.codex/config.toml` の
-`notify` があり、ターン終了時に外部プログラムを呼びます。その通知
-（`agent-turn-complete`）には **`last-assistant-message` が含まれている**ので、
-会話ログを解析するまでもなく本文が取れます。
-さらに Codex 側にも `Stop` を含むフック機構があり、Claude Code とよく似た形をしています。
-実装していないだけで、原理的な障害はありません。
+## Codex でも同じように使えます
+
+```bash
+./install-codex.sh          # 行を作って見せます（書き換えはしません）
+./install-codex.sh --apply  # 納得したら書き換える
+```
+
+Codex は `~/.codex/config.toml` の `notify` でターン終了時に外部プログラムを呼び、
+その通知に **`last-assistant-message` が丸ごと入っています**。会話ログの解析は要りません。
+
+**`notify` は1つしか置けません。** すでに別のものを使っている場合のために、
+nagara のスクリプトは「最後の引数が Codex の JSON、手前はそのまま渡す先」という約束で
+書いてあります。`install-codex.sh` は既存の設定を読んで、**元の通知へ渡す形の行**を作ります。
+
+```toml
+notify = ["~/.codex/nagara-codex-notify.sh", "元の通知プログラム", "元の引数"]
+```
+
+届いたものは `[Codex]` として履歴に載り、自動再生も読みの見張りも Claude Code と同じに効きます。
 
 設計の判断とその理由は [DESIGN.md](DESIGN.md) に書いてあります。
 手を入れる前にそちらを読んでください。

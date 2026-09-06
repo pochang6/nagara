@@ -52,6 +52,11 @@ struct Settings: Codable {
     /// Electron 製なので完全には抑えられないが、起動直後に隠す努力はする
     var hideEngineOnLaunch: Bool = true
 
+    /// 読み間違いを見張るか。既定はオフ。
+    /// AivisSpeech のユーザー辞書は AivisSpeech 全体で共有されるので、
+    /// 黙って書き足されたくない人のほうが多いはず。入れるなら本人が入れる
+    var readingCheck: Bool = false
+
     var historyLimit: Int = 30
 
     // 読み飛ばし。コードブロックを律儀に読み上げても仕方がない
@@ -99,6 +104,7 @@ struct Settings: Codable {
         engineIdleQuitLadder = value(.engineIdleQuitLadder, fallback.engineIdleQuitLadder)
         quitEngineOnExit = value(.quitEngineOnExit, fallback.quitEngineOnExit)
         hideEngineOnLaunch = value(.hideEngineOnLaunch, fallback.hideEngineOnLaunch)
+        readingCheck = value(.readingCheck, fallback.readingCheck)
         historyLimit = value(.historyLimit, fallback.historyLimit)
         skipCodeBlocks = value(.skipCodeBlocks, fallback.skipCodeBlocks)
         minimumLength = value(.minimumLength, fallback.minimumLength)

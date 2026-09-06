@@ -22,6 +22,7 @@ Sources/          メニューバーアプリ本体（swiftc で直接ビルド�
   Aivis.swift     AivisSpeech Engine への HTTP クライアントと、起動／終了の面倒
   Ingest.swift    127.0.0.1 だけで待つ最小の HTTP サーバー
   Sanitizer.swift Markdown → 読める文へ。文への分割もここ
+  Yomi.swift      読み間違いの検出。engine と macOS の読みを突き合わせる
   Hotkeys.swift   Carbon の RegisterEventHotKey。許可は要らない
   MenuBar.swift   NSStatusItem のメニュー
   History.swift   届いたテキストの控えと、積むかどうかの判断
@@ -30,6 +31,7 @@ hooks/            Claude Code の Stop フック
 commands/         /speak と /stop
 build.sh          ビルド → 署名 → /Applications へ設置 → CLI 設置
 install-claude.sh Claude Code 側へフックとコマンドを設置
+install-codex.sh  Codex 側へ notify を設置（config.toml は既定で書き換えない）
 ```
 
 ## 触るときの手順

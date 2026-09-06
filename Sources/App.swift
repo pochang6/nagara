@@ -80,9 +80,12 @@ final class Controller {
     // MARK: - 入口
 
     private func startIngest() {
-        let ingest = Ingest(port: settings.port) { [weak self] command in
-            guard let self else { return ["error": "終了しています"] }
-            return self.handle(command)
+        let ingest = Ingest(port: settings.port) { [weak self] command, reply in
+            guard let self else {
+                reply(["error": "終了しています"])
+                return
+            }
+            self.handle(command, reply: reply)
         }
         do {
             try ingest.start()
@@ -93,8 +96,37 @@ final class Controller {
         }
     }
 
+    /// 読みの走査だけは engine に何度も聞くので、答えを待たせる。
+    /// 残りは今までどおりその場で返す
+    private func handle(_ command: Ingest.Command, reply: @escaping ([String: Any]) -> Void) {
+        guard command.path == "/yomi/check" else {
+            reply(handle(command))
+            return
+        }
+        let text = command.body["text"] as? String ?? ""
+        Task { [weak self] in
+            let found = await self?.scanReadings(text) ?? []
+            await MainActor.run {
+                reply(["ok": true, "found": found.map(\.dictionary),
+                       "pending": Yomi.load().pending.map(\.dictionary)])
+            }
+        }
+    }
+
     private func handle(_ command: Ingest.Command) -> [String: Any] {
         switch command.path {
+        case "/yomi/pending":
+            let store = Yomi.load()
+            return ["ok": true, "pending": store.pending.map(\.dictionary),
+                    "ignored": store.ignored, "readingCheck": settings.readingCheck]
+        case "/yomi/resolve":
+            guard let surface = command.body["surface"] as? String else {
+                return ["error": "surface がありません"]
+            }
+            let ignore = command.body["ignore"] as? Bool ?? false
+            Yomi.resolve(surface: surface, ignore: ignore)
+            Log.write("yomi: \(surface) を片付けた（\(ignore ? "見送り" : "登録済み")）")
+            return ["ok": true, "pending": Yomi.load().pending.map(\.dictionary)]
         case "/speak":
             guard let text = command.body["text"] as? String else {
                 return ["error": "text がありません"]
@@ -212,6 +244,29 @@ final class Controller {
         unreadCount = 0
         player.load(text: item.text)
         player.play()
+        guard settings.readingCheck else { return }
+        // 読み終わるのを待たない。鳴らすほうが主で、こちらは裏で静かに走る
+        Task { [weak self] in _ = await self?.scanReadings(item.text) }
+    }
+
+    /// 読む文章の中から、読みが怪しい語を拾って溜める。
+    ///
+    /// engine と macOS の読みが食い違ったものだけを候補にする。正解は決めない。
+    /// 決めるのは AI エージェントか本人で、ここは指差すところまで
+    func scanReadings(_ text: String) async -> [Yomi.Candidate] {
+        let speakable = Sanitizer.speakable(from: text, skipCodeBlocks: settings.skipCodeBlocks)
+        let speakerId = settings.speakerId
+        var found: [Yomi.Candidate] = []
+        for (word, context) in Yomi.words(in: speakable) {
+            guard let guess = Yomi.macReading(word) else { continue }
+            guard let engineReading = try? await aivis.reading(of: word, speakerId: speakerId),
+                  Yomi.disagrees(engine: engineReading, guess: guess)
+            else { continue }
+            found.append(Yomi.Candidate(
+                surface: word, engine: engineReading, guess: guess,
+                context: context, seenAt: Date()))
+        }
+        return Yomi.append(found)
     }
 
     func toggle() {

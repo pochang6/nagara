@@ -13,11 +13,20 @@
 #   nagara volume          音量を1段上げる
 #   nagara volume 0.8      音量を指定する（0.0〜1.0）
 #   nagara status          いまの状態を JSON で見る
+#
+#   nagara yomi                    読みが怪しい語の一覧（溜まっているもの）
+#   nagara yomi check "文章"        その場で調べる
+#   nagara yomi dict               AivisSpeech のユーザー辞書を見る
+#   nagara yomi add 再生中 サイセイチュウ [0]   辞書に入れる（候補からも消える）
+#   nagara yomi skip 明日           見送る（次から出さない）
+#   nagara yomi rm <uuid>          辞書から消す
 set -euo pipefail
 
 PORT="${NAGARA_PORT:-17371}"
 HOST="127.0.0.1"
 SOURCE="${NAGARA_SOURCE:-cli}"
+# 読みの登録先。辞書は nagara ではなく AivisSpeech が持っている
+ENGINE="${NAGARA_ENGINE:-http://127.0.0.1:10101}"
 
 post() {
   local path="$1" body="${2:-{\}}"
@@ -93,8 +102,88 @@ case "${1:-}" in
     post "/status"
     echo
     ;;
+  yomi)
+    shift
+    case "${1:-}" in
+      ""|pending)
+        ensure_app
+        post "/yomi/pending" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+rows = data.get("pending", [])
+if not rows:
+    print("怪しい読みは溜まっていません" + ("" if data.get("readingCheck") else "（見張りはオフです）"))
+    raise SystemExit
+for row in rows:
+    print(row["surface"], "engine=" + row["engine"], "mac=" + row["guess"], row["context"][:30], sep="\t")
+'
+        ;;
+      check)
+        shift
+        [ -n "${1:-}" ] || die "調べる文章がありません"
+        ensure_app
+        printf '%s' "$*" | python3 -c '
+import json, sys
+print(json.dumps({"text": sys.stdin.read()}, ensure_ascii=False))
+' > /tmp/nagara-yomi-check.json
+        curl -sS -m 300 -X POST "http://$HOST:$PORT/yomi/check" \
+          -H 'Content-Type: application/json' -d @/tmp/nagara-yomi-check.json | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+rows = data.get("found", [])
+print(str(len(rows)) + "語")
+for row in rows:
+    print(row["surface"], "engine=" + row["engine"], "mac=" + row["guess"], sep="\t")
+'
+        rm -f /tmp/nagara-yomi-check.json
+        ;;
+      dict)
+        curl -sS -m 10 "$ENGINE/user_dict" | python3 -c '
+import json, sys
+for uuid, word in json.load(sys.stdin).items():
+    print(uuid, word["surface"], word["pronunciation"], "型" + str(word["accent_type"]), sep="\t")
+'
+        ;;
+      add)
+        shift
+        SURFACE="${1:-}"; YOMI="${2:-}"; ACCENT="${3:-0}"
+        [ -n "$SURFACE" ] && [ -n "$YOMI" ] || die "nagara yomi add <表層> <カタカナ> [アクセント型]"
+        UUID="$(curl -sS -m 20 -X POST --get "$ENGINE/user_dict_word" \
+          --data-urlencode "surface=$SURFACE" \
+          --data-urlencode "pronunciation=$YOMI" \
+          --data-urlencode "accent_type=$ACCENT" \
+          --data-urlencode "word_type=COMMON_NOUN" \
+          --data-urlencode "priority=8")"
+        echo "$SURFACE -> $YOMI  $UUID"
+        # 登録できたら候補からは落とす。見送りではないので ignore はしない
+        ensure_app
+        post "/yomi/resolve" "$(python3 -c '
+import json, sys
+print(json.dumps({"surface": sys.argv[1], "ignore": False}, ensure_ascii=False))
+' "$SURFACE")" > /dev/null
+        ;;
+      skip)
+        shift
+        [ -n "${1:-}" ] || die "nagara yomi skip <表層>"
+        ensure_app
+        post "/yomi/resolve" "$(python3 -c '
+import json, sys
+print(json.dumps({"surface": sys.argv[1], "ignore": True}, ensure_ascii=False))
+' "$1")" > /dev/null
+        echo "$1 は次から出しません"
+        ;;
+      rm)
+        shift
+        [ -n "${1:-}" ] || die "nagara yomi rm <uuid>"
+        curl -sS -m 20 -X DELETE "$ENGINE/user_dict_word/$1" -w '%{http_code}\n'
+        ;;
+      *)
+        die "yomi のあとは pending / check / dict / add / skip / rm のどれかです"
+        ;;
+    esac
+    ;;
   -h|--help)
-    sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
     ;;
   "")
     # 引数なしは標準入力から。 … | nagara という形

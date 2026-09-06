@@ -15,10 +15,11 @@ final class Ingest {
 
     private var listener: NWListener?
     private let port: UInt16
-    /// 常にメインスレッドで呼ばれる。戻り値がそのまま JSON になる
-    private let handle: (Command) -> [String: Any]
+    /// 常にメインスレッドで呼ばれる。reply に渡したものがそのまま JSON になる。
+    /// 待たせる口（読みの走査）があるので、戻り値ではなく渡し直しにしてある
+    private let handle: (Command, @escaping ([String: Any]) -> Void) -> Void
 
-    init(port: UInt16, handle: @escaping (Command) -> [String: Any]) {
+    init(port: UInt16, handle: @escaping (Command, @escaping ([String: Any]) -> Void) -> Void) {
         self.port = port
         self.handle = handle
     }
@@ -94,9 +95,10 @@ final class Ingest {
 
         let command = Command(path: request.path, body: body)
         DispatchQueue.main.async {
-            let result = self.handle(command)
-            let status = (result["error"] != nil) ? "400 Bad Request" : "200 OK"
-            self.send(status: status, json: result, on: connection)
+            self.handle(command) { result in
+                let status = (result["error"] != nil) ? "400 Bad Request" : "200 OK"
+                self.send(status: status, json: result, on: connection)
+            }
         }
     }
 

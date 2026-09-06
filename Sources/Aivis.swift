@@ -316,6 +316,20 @@ final class Aivis {
         return wav
     }
 
+    /// この文字列を engine が実際にどう読むか。合成はしない。
+    ///
+    /// lastUsed は動かさない。裏で読みを確かめただけで「使った」ことにすると、
+    /// 置いておく時間がいつまでも延びてエンジンが落ちなくなる
+    func reading(of text: String, speakerId: Int) async throws -> String {
+        let query = try await audioQuery(text: text, speakerId: speakerId)
+        guard let phrases = query["accent_phrases"] as? [[String: Any]] else { return "" }
+        return phrases.reduce(into: "") { kana, phrase in
+            for mora in phrase["moras"] as? [[String: Any]] ?? [] {
+                kana += mora["text"] as? String ?? ""
+            }
+        }
+    }
+
     private func audioQuery(text: String, speakerId: Int) async throws -> [String: Any] {
         var components = URLComponents(
             url: base.appendingPathComponent("audio_query"), resolvingAgainstBaseURL: false)!
