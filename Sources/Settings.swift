@@ -43,6 +43,10 @@ struct Settings: Codable {
     var engineAppName: String = "AivisSpeech"
     /// 最後に使ってから何分で落とすか。0 なら落とさず置いておく
     var engineIdleQuitMinutes: Int = 15
+    /// メニューに並べる待ち時間の段。
+    /// 短い間隔で対話が続く日は15分だと落ちすぎるし、資料を流し込むだけの日は長すぎる。
+    /// 段はここで足し引きできる（速度・音量と同じ考えかた）
+    var engineIdleQuitLadder: [Int] = [15, 30, 45, 60, 120, 360]
     /// nagara の終了に合わせて落とすか（自分で起こしたエンジンだけが対象）
     var quitEngineOnExit: Bool = true
     /// Electron 製なので完全には抑えられないが、起動直後に隠す努力はする
@@ -92,6 +96,7 @@ struct Settings: Codable {
         launchEngineIfNeeded = value(.launchEngineIfNeeded, fallback.launchEngineIfNeeded)
         engineAppName = value(.engineAppName, fallback.engineAppName)
         engineIdleQuitMinutes = value(.engineIdleQuitMinutes, fallback.engineIdleQuitMinutes)
+        engineIdleQuitLadder = value(.engineIdleQuitLadder, fallback.engineIdleQuitLadder)
         quitEngineOnExit = value(.quitEngineOnExit, fallback.quitEngineOnExit)
         hideEngineOnLaunch = value(.hideEngineOnLaunch, fallback.hideEngineOnLaunch)
         historyLimit = value(.historyLimit, fallback.historyLimit)

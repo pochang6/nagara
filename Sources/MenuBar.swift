@@ -237,15 +237,53 @@ final class MenuBar: NSObject, NSMenuDelegate {
         submenu.addItem(.separator())
         submenu.addItem(disabled("使い終わったら"))
         for policy in [Controller.EnginePolicy.keepRunning, .idleQuit, .quitOnExit] {
-            var title = policy.label
+            // 待ち時間の段は1階層下に置く。上はこれまでどおりの3択のままにしたい。
+            // ここに分を並べると、いちばん使う3択が段に埋もれる
             if policy == .idleQuit {
-                title = "\(controller.settings.engineIdleQuitMinutes)分使わなければ閉じる"
+                // ここの submenu はローカル変数のほう。作る側はメソッド
+                let entry = self.submenu(idleQuitTitle(), build: idleQuitMenu())
+                entry.state = controller.enginePolicy == policy ? .on : .off
+                submenu.addItem(entry)
+                continue
             }
-            let entry = item(title, #selector(enginePolicyAction))
+            let entry = item(policy.label, #selector(enginePolicyAction))
             entry.representedObject = policy.rawValue
             entry.state = controller.enginePolicy == policy ? .on : .off
             submenu.addItem(entry)
         }
+        return submenu
+    }
+
+    /// 選ばれているときだけ待ち時間を出す。
+    /// 以前はいつでも分を出していたので、「起動したままにする」を選んだ拍子に
+    /// 分が 0 になり、選んでもいない項目が「0分使わなければ閉じる」と名乗っていた
+    private func idleQuitTitle() -> String {
+        let minutes = controller.settings.engineIdleQuitMinutes
+        guard controller.enginePolicy == .idleQuit, minutes > 0 else {
+            return Controller.EnginePolicy.idleQuit.label
+        }
+        return "\(minutesLabel(minutes))使わなければ閉じる"
+    }
+
+    private func minutesLabel(_ minutes: Int) -> String {
+        guard minutes >= 60 else { return "\(minutes)分" }
+        let hours = minutes / 60
+        let rest = minutes % 60
+        return rest == 0 ? "\(hours)時間" : "\(hours)時間\(rest)分"
+    }
+
+    private func idleQuitMenu() -> NSMenu {
+        let submenu = NSMenu()
+        let ladder = controller.settings.engineIdleQuitLadder
+        for minutes in (ladder.isEmpty ? [15] : ladder).sorted() {
+            let entry = item(minutesLabel(minutes), #selector(engineIdleMinutesAction))
+            entry.representedObject = minutes
+            entry.state = controller.enginePolicy == .idleQuit
+                && controller.settings.engineIdleQuitMinutes == minutes ? .on : .off
+            submenu.addItem(entry)
+        }
+        submenu.addItem(.separator())
+        submenu.addItem(disabled("段は設定ファイルで足し引きできます"))
         return submenu
     }
 
@@ -346,6 +384,11 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func clearHistoryAction() { controller.history.clear() }
     @objc private func launchEngineAction() { controller.launchEngine() }
     @objc private func quitEngineAction() { controller.quitEngine() }
+
+    @objc private func engineIdleMinutesAction(_ sender: NSMenuItem) {
+        guard let minutes = sender.representedObject as? Int else { return }
+        controller.setEngineIdleMinutes(minutes)
+    }
 
     @objc private func enginePolicyAction(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? Int,
