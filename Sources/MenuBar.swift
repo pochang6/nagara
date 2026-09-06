@@ -9,12 +9,17 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private unowned let controller: Controller
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
+    private var keyMonitor: Any?
 
     init(controller: Controller) {
         self.controller = controller
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         menu.delegate = self
+        // view を持つ項目は action を持たないので、自動判定に任せると無効にされる。
+        // 「自動再生」が灰色になってチェックも押せなくなったのはこれ。
+        // 有効・無効はこちらで明示する（disabled() と isEnabled）
+        menu.autoenablesItems = false
         statusItem.menu = menu
         statusItem.button?.imagePosition = .imageLeading
         refresh()
@@ -54,6 +59,65 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         rebuild(menu)
+    }
+
+    // メニューを開いている間だけ、キーを自分で拾う。
+    //
+    // グローバルホットキーは Carbon の RegisterEventHotKey で、キー自体は横取りするのに、
+    // メニューのトラッキング中はアプリまで届かない。ステータス項目のメニューは
+    // キー等価物も拾わないので、開いている間は何を押しても無反応だった。
+    // 開きっぱなしにした以上、ここが効かないのは不便すぎる
+    func menuWillOpen(_ menu: NSMenu) {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let action = MenuBar.action(for: event) else { return event }
+            Log.write("menubar: 開いたまま \(action) を受けた")
+            self.controller.perform(action)
+            self.refreshOpenMenu()
+            return nil
+        }
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+    }
+
+    /// 矢印は配列に左右されないよう keyCode で見る。それ以外は文字で見る
+    private static func action(for event: NSEvent) -> Hotkeys.Action? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.control), flags.contains(.option),
+              !flags.contains(.command) else { return nil }
+        switch event.keyCode {
+        case 123: return .rateDown
+        case 124: return .rateUp
+        case 125: return .next
+        case 126: return .back
+        default: break
+        }
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "p": return .toggle
+        case ".": return .stop
+        case "c": return .clipboard
+        case "=": return .volumeUp
+        case "-": return .volumeDown
+        default: return nil
+        }
+    }
+
+    /// 開いたままの状態で中身が変わったときに、見えているところを描き直す。
+    /// 速度や音量は先頭の1行にも出ているので、そこも合わせる
+    func refreshOpenMenu() {
+        menu.items.first?.title = statusLine()
+        var menus: [NSMenu] = [menu]
+        while let current = menus.popLast() {
+            for entry in current.items {
+                (entry.view as? StickyMenuItemView)?.needsDisplay = true
+                if let child = entry.submenu { menus.append(child) }
+            }
+        }
     }
 
     private func rebuild(_ menu: NSMenu) {
@@ -134,7 +198,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     private func rateMenu() -> NSMenu {
-        let submenu = NSMenu()
+        let submenu = newMenu()
         submenu.addItem(item("速く", #selector(rateUpAction), key: Self.rightArrow))
         submenu.addItem(item("遅く", #selector(rateDownAction), key: Self.leftArrow))
         submenu.addItem(.separator())
@@ -154,7 +218,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     private func volumeMenu() -> NSMenu {
-        let submenu = NSMenu()
+        let submenu = newMenu()
         submenu.addItem(item("大きく", #selector(volumeUpAction), key: "="))
         submenu.addItem(item("小さく", #selector(volumeDownAction), key: "-"))
         submenu.addItem(.separator())
@@ -170,7 +234,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     private func speakerMenu() -> NSMenu {
-        let submenu = NSMenu()
+        let submenu = newMenu()
         guard !controller.speakers.isEmpty else {
             submenu.addItem(disabled("AivisSpeech に接続すると一覧が出ます"))
             submenu.addItem(item("いま読み込む", #selector(reloadSpeakersAction)))
@@ -186,7 +250,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
                     select: { [weak self] in self?.controller.setSpeaker(id: style.id, label: label) }))
                 continue
             }
-            let styles = NSMenu()
+            let styles = newMenu()
             for style in speaker.styles {
                 let label = "\(speaker.name) / \(style.name)"
                 styles.addItem(sticky(
@@ -205,7 +269,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     private func historyMenu() -> NSMenu {
-        let submenu = NSMenu()
+        let submenu = newMenu()
         let items = controller.history.items
         guard !items.isEmpty else {
             submenu.addItem(disabled("まだ何も届いていません"))
@@ -225,7 +289,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     private func engineMenu() -> NSMenu {
-        let submenu = NSMenu()
+        let submenu = newMenu()
         let running = controller.aivis.isEngineRunning
         submenu.addItem(disabled(running ? "● 起動中" : "○ 停止中"))
         if running, !controller.aivis.launchedByUs {
@@ -277,7 +341,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     private func idleQuitMenu() -> NSMenu {
-        let submenu = NSMenu()
+        let submenu = newMenu()
         let ladder = controller.settings.engineIdleQuitLadder
         for minutes in (ladder.isEmpty ? [15] : ladder).sorted() {
             submenu.addItem(sticky(
@@ -297,8 +361,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     // ショートカットはメニューの右側に薄く出す。忘れたときに確かめる場所が要る。
     // キー等価物を実際に設定することで、AppKit が標準の見た目で右寄せに描いてくれる。
-    // 副作用としてメニューを開いている間はこちらでも反応するので、
-    // その間はグローバルホットキー側を黙らせている（Controller.menuIsOpen）
+    // ただし表示だけで、実際に効かせているのは menuWillOpen の監視のほう
     private func item(
         _ title: String,
         _ action: Selector,
@@ -334,8 +397,18 @@ final class MenuBar: NSObject, NSMenuDelegate {
         select: @escaping () -> Void
     ) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        entry.view = StickyMenuItemView(title: title, isOn: isOn, select: select)
+        entry.view = StickyMenuItemView(title: title, isOn: isOn, select: { [weak self] in
+            select()
+            self?.refreshOpenMenu()
+        })
         return entry
+    }
+
+    /// 部分メニューも自動判定を切る。理由は init と同じ
+    private func newMenu() -> NSMenu {
+        let created = NSMenu()
+        created.autoenablesItems = false
+        return created
     }
 
     private func submenu(_ title: String, build: NSMenu) -> NSMenuItem {

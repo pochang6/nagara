@@ -227,7 +227,7 @@ final class Controller {
 
     private var lastActionAt: [Hotkeys.Action: Date] = [:]
 
-    private func perform(_ action: Hotkeys.Action) {
+    func perform(_ action: Hotkeys.Action) {
         // 押したのに何も起きない、が一番困る。届いたことは必ず記録する
         Log.write("hotkey: \(action)")
         // メニューを開いている間はグローバル側を黙らせていたが、
