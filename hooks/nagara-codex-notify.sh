@@ -21,6 +21,43 @@ PAYLOAD="${!#}"
 PORT="${NAGARA_PORT:-17371}"
 
 send_to_nagara() {
+  # Desktop の内部タスクも turn-complete を出す。本文の JSON らしさで弾くと、
+  # 本人が頼んだ JSON の回答まで失うので、内部タスク固有の依頼文で見分ける。
+  # 会話ログや Codex の内部 DB には依存させない（DESIGN.md 2.1節）。
+  local body
+  body="$(printf '%s' "$PAYLOAD" | python3 -c '
+import json, re, sys
+
+try:
+    payload = json.load(sys.stdin)
+except (ValueError, TypeError):
+    sys.exit(0)
+if not isinstance(payload, dict) or payload.get("type") != "agent-turn-complete":
+    sys.exit(0)
+
+text = payload.get("last-assistant-message")
+if not isinstance(text, str) or not text.strip():
+    sys.exit(0)
+
+inputs = payload.get("input-messages", [])
+if not isinstance(inputs, list):
+    sys.exit(0)
+for message in inputs:
+    if not isinstance(message, str):
+        sys.exit(0)
+    prompt = " ".join(message.split())
+    if prompt.startswith((
+        "You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.",
+        "You are an expert at upholding safety and compliance standards for Codex ambient suggestions.",
+    )) or re.match(r"^(?:# Overview )?Generate \d+ to \d+ hyperpersonalized suggestions for what this user can do with Codex\b", prompt):
+        sys.exit(0)
+    if "nagara:internal" in message:
+        sys.exit(0)
+
+print(json.dumps({"text": text.strip(), "source": "Codex"}))
+' 2>/dev/null)" || return 0
+  [ -n "$body" ] || return 0
+
   # 本体が落ちていたら起こす。待つのは3秒まで。
   # 通知フックが理由で Codex が待たされるのは本末転倒
   if ! curl -sS -m 1 "http://127.0.0.1:$PORT/status" >/dev/null 2>&1; then
@@ -33,22 +70,10 @@ send_to_nagara() {
     [ "$up" = "1" ] || return 0
   fi
 
-  printf '%s' "$PAYLOAD" | python3 -c '
-import json, sys, urllib.request
+  printf '%s' "$body" | python3 -c '
+import sys, urllib.request
 
-try:
-    payload = json.loads(sys.stdin.read() or "{}")
-except Exception:
-    sys.exit(0)
-
-if payload.get("type") not in (None, "agent-turn-complete"):
-    sys.exit(0)
-
-text = (payload.get("last-assistant-message") or "").strip()
-if not text:
-    sys.exit(0)
-
-body = json.dumps({"text": text, "source": "Codex"}).encode()
+body = sys.stdin.read().encode()
 request = urllib.request.Request(
     "http://127.0.0.1:" + sys.argv[1] + "/speak",
     data=body, headers={"Content-Type": "application/json"})

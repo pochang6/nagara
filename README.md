@@ -416,6 +416,17 @@ Codex を開き直すと効き始めます。届いたものは `[Codex]` とし
 自動再生も読みの見張りも Claude Code と同じに効きます。外すときは `./install-codex.sh --uninstall`
 （`config.toml` の行は手で戻してください）。
 
+Desktop が裏で行うタスク名生成・おすすめ候補生成・候補の審査は、通知内の依頼文で
+除外します。画面に出ない `description` や `exclude` を読み上げないためです。
+普通の返答や、依頼して返された JSON はそのまま受け取ります。
+Codex 側で内部の依頼文が変わった場合は、判定の更新が必要になることがあります。
+
+すでに設定済みなら `./install-codex.sh` で通知スクリプトだけ更新できます。
+設定行が同じなら、Codex の再起動は不要です。
+
+入口の回帰テストは `python3 -m unittest discover -s tests -v`。
+仮の HTTP サーバーで、会話だけが届くことと既存通知への転送を確かめます。音は鳴りません。
+
 設計の判断とその理由は [DESIGN.md](DESIGN.md) に書いてあります。
 手を入れる前にそちらを読んでください。
 
@@ -769,14 +780,24 @@ tail -f ~/Library/Logs/nagara.log
 
 - Seeking to an arbitrary position (you can only move one sentence at a time)
 - Media keys and Control Center (no Now Playing support)
-- **Codex integration** (the CLI and `⌃⌥C` already work with it)
 - Avatar display
 
-Codex looks straightforward. `~/.codex/config.toml` has a `notify` entry that runs an
-external program at the end of a turn, and that `agent-turn-complete` payload
-**contains `last-assistant-message`** — the body comes for free, with no log parsing.
-Codex also has its own hook system including a `Stop` event, closely mirroring Claude Code's.
-It simply hasn't been implemented yet; nothing blocks it in principle.
+### Codex integration
+
+Run `./install-codex.sh` to install the notification script and show the proposed
+`notify` setting. Run `./install-codex.sh --apply` to update the configuration with
+a timestamped backup, then restart Codex. Existing notification commands are forwarded
+the original payload. Auto-play uses the same setting as Claude Code.
+
+The hook receives `last-assistant-message` directly. It filters Desktop's known
+internal title, suggestion, and suggestion-review prompts using `input-messages`,
+so their hidden output is not spoken. Ordinary replies, including requested JSON,
+are preserved. Changes to those internal prompts may require a filter update.
+
+For an existing installation, run `./install-codex.sh` again to update the script.
+No restart is needed if the configuration stays the same. Updating the app alone
+does not update the installed hook. Run `python3 -m unittest discover -s tests -v`
+to check notification filtering and forwarding with a mock server, without audio.
 
 Design decisions and the reasoning behind them are in [DESIGN.md](DESIGN.md) (Japanese).
 Please read it before changing things.
