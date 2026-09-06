@@ -319,6 +319,27 @@ final class MenuBar: NSObject, NSMenuDelegate {
                 isOn: { [weak self] in self?.controller.enginePolicy == policy },
                 select: { [weak self] in self?.controller.setEnginePolicy(policy) }))
         }
+
+        // 読みの辞書を持っているのは AivisSpeech なので、この階層に置く。
+        // 以前は settings.json にしか無かったが、探しに行った場所に無い設定は
+        // 無いのと同じだった
+        submenu.addItem(.separator())
+        submenu.addItem(sticky(
+            "読み間違いを拾う",
+            isOn: { [weak self] in self?.controller.settings.readingCheck ?? false },
+            select: { [weak self] in
+                guard let self else { return }
+                self.controller.setReadingCheck(!self.controller.settings.readingCheck)
+            }))
+        if controller.settings.readingCheck {
+            let pending = Yomi.load().pending.count
+            submenu.addItem(disabled(
+                pending > 0
+                    ? "　候補 \(pending)件（/yomi で片付きます）"
+                    : "　いまのところ候補はありません"))
+        } else {
+            submenu.addItem(disabled("　読んだ文章から怪しい読みを溜めます"))
+        }
         return submenu
     }
 

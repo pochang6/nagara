@@ -298,13 +298,14 @@ nagara 側に辞書は持っていません。読みの管理はエンジンの�
 ### 気づく前に、拾わせる（既定オフ）
 
 気づいたときに言うのでも直りますが、**気づかないまま流れていくもののほうが多い**はずです。
-そこで、読んだ文章から**怪しい読みを自動で拾う**見張りを付けました。
+そこで、読んだ文章から**怪しい読みを自動で拾う**見張りを付けました。**既定はオフです。**
 
-```json
-"readingCheck": true
-```
+メニューの **AivisSpeech →「読み間違いを拾う」** で入れ切りします。
+その下に、いま溜まっている候補の数が出ます。
 
-`settings.json` でこれを立てると、読み上げるたびに文章の中の語を拾い、
+> `settings.json` の `readingCheck` でも同じことができます。
+
+これを入れると、読み上げるたびに文章の中の語を拾い、
 **AivisSpeech の読みと macOS 側の読みを突き合わせて、食い違ったものだけ**を溜めます。
 
 - AivisSpeech の読みは `audio_query` が返すモーラ。実際に喋られる読みそのものです
@@ -387,23 +388,33 @@ tail -f ~/Library/Logs/nagara.log
 
 ## Codex でも同じように使えます
 
+Codex は `~/.codex/config.toml` の `notify` で、ターンが終わるたびに外部プログラムを呼びます。
+その通知に **`last-assistant-message` が丸ごと入っている**ので、会話ログを読む必要がありません。
+
 ```bash
-./install-codex.sh          # 行を作って見せます（書き換えはしません）
-./install-codex.sh --apply  # 納得したら書き換える
+./install-codex.sh          # 何をするか見せるだけ。書き換えません
+./install-codex.sh --apply  # 納得してから書き換える
 ```
 
-Codex は `~/.codex/config.toml` の `notify` でターン終了時に外部プログラムを呼び、
-その通知に **`last-assistant-message` が丸ごと入っています**。会話ログの解析は要りません。
+1回目は、置くべき `notify` の行を表示して終わります。`--apply` を付けると
+`config.toml` を書き換え、**元のファイルを `config.toml.bak.<日時>` に残します。**
 
-**`notify` は1つしか置けません。** すでに別のものを使っている場合のために、
-nagara のスクリプトは「最後の引数が Codex の JSON、手前はそのまま渡す先」という約束で
-書いてあります。`install-codex.sh` は既存の設定を読んで、**元の通知へ渡す形の行**を作ります。
+**すでに `notify` を使っている場合も壊れません。**
+`notify` は1つしか置けないので、nagara のスクリプトは
+**「最後の引数が Codex の JSON、それより手前はそのまま渡す先」**という約束で書いてあります。
+`install-codex.sh` は既存の設定を読んで、nagara を手前に挟み、元のプログラムへ渡す行を作ります。
 
 ```toml
-notify = ["~/.codex/nagara-codex-notify.sh", "元の通知プログラム", "元の引数"]
+# 元がこうなら
+notify = ["/path/to/元の通知プログラム", "元の引数"]
+
+# こうなる。nagara が受け取ってから、元のプログラムへそのまま渡す
+notify = ["~/.codex/nagara-codex-notify.sh", "/path/to/元の通知プログラム", "元の引数"]
 ```
 
-届いたものは `[Codex]` として履歴に載り、自動再生も読みの見張りも Claude Code と同じに効きます。
+Codex を開き直すと効き始めます。届いたものは `[Codex]` として履歴に載り、
+自動再生も読みの見張りも Claude Code と同じに効きます。外すときは `./install-codex.sh --uninstall`
+（`config.toml` の行は手で戻してください）。
 
 設計の判断とその理由は [DESIGN.md](DESIGN.md) に書いてあります。
 手を入れる前にそちらを読んでください。

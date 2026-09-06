@@ -376,6 +376,12 @@ final class Controller {
 
     /// 待ち時間を選んで「しばらく使わなければ閉じる」にする。
     /// 分を選ぶこと自体がその方針を選ぶことなので、入口をひとつにまとめてある
+    func setReadingCheck(_ enabled: Bool) {
+        settings.readingCheck = enabled
+        Log.write("settings: 読み間違いの見張りを \(enabled ? "オン" : "オフ") にした")
+        persist()
+    }
+
     func setEngineIdleMinutes(_ minutes: Int) {
         settings.engineIdleQuitMinutes = max(1, minutes)
         settings.quitEngineOnExit = true
