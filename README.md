@@ -265,6 +265,31 @@ nagara はエンジンを隠して起こすので、**窓が開いた／前面�
 
 > **既知の制約**: AivisSpeech は Electron 製で、起動時に自分でウィンドウを前面へ出します。
 > nagara は見つけ次第 hide し続けますが、**一瞬ちらつくのは避けられません**。
+
+### 読み間違いに気づいたら
+
+流し聞きしていると、たまに変な読みに当たります。たとえば「再生中」が
+**「さいなまちゅう」**（再 ＋ 生中）になる、といった具合です。
+
+これは nagara ではなく AivisSpeech 側の読みなので、**AivisSpeech のユーザー辞書**に入れれば直ります。
+そして nagara を使う人はたいてい AI エージェントと会話しているところなので、**そのまま頼むのが速いです。**
+
+> 「再生中」が「さいなまちゅう」って読まれる。AivisSpeech の辞書に入れといて
+
+エージェントはローカルの Engine に投げるだけで登録できます。
+
+```bash
+curl -s -X POST "http://127.0.0.1:10101/user_dict_word\
+?surface=再生中&pronunciation=サイセイチュウ&accent_type=0&word_type=COMMON_NOUN&priority=8"
+```
+
+- `accent_type` は音が下がる直前のモーラを 1 から数えた位置。`0` は平板
+- 返ってくる uuid が取り消し用（`DELETE /user_dict_word/{uuid}`）。一覧は `GET /user_dict`
+- 登録前に実際の読みを確かめるなら `POST /audio_query` の `accent_phrases` のモーラを見ます
+- **この辞書は AivisSpeech 全体で共有されます。** nagara 専用ではありません
+
+nagara 側に辞書機能は置いていません。読みの管理はエンジンの仕事で、
+そこへ頼む相手はもう画面の中にいるからです。
 > 完全に消すには GUI を持たない AivisSpeech-Engine 単体版に差し替える必要があります。
 
 ---

@@ -90,9 +90,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.addItem(submenu("音量", build: volumeMenu()))
         menu.addItem(submenu("声", build: speakerMenu()))
 
-        let autoPlay = item("自動再生", #selector(autoPlayAction))
-        autoPlay.state = controller.settings.autoPlay ? .on : .off
-        menu.addItem(autoPlay)
+        menu.addItem(sticky(
+            "自動再生",
+            isOn: { [weak self] in self?.controller.settings.autoPlay ?? false },
+            select: { [weak self] in self?.autoPlayAction() }))
 
         menu.addItem(.separator())
         menu.addItem(submenu("履歴", build: historyMenu()))
@@ -101,9 +102,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.addItem(submenu("AivisSpeech", build: engineMenu()))
 
         menu.addItem(.separator())
-        let login = item("ログイン時に起動", #selector(loginItemAction))
-        login.state = LoginItem.isEnabled ? .on : .off
-        menu.addItem(login)
+        menu.addItem(sticky(
+            "ログイン時に起動",
+            isOn: { LoginItem.isEnabled },
+            select: { [weak self] in self?.loginItemAction() }))
         menu.addItem(item("設定ファイルを開く", #selector(openSettingsAction)))
         menu.addItem(item("ログを開く", #selector(openLogAction)))
 
@@ -137,10 +139,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         submenu.addItem(item("遅く", #selector(rateDownAction), key: Self.leftArrow))
         submenu.addItem(.separator())
         for rate in controller.settings.rateLadder {
-            let entry = item(rateLabel(rate), #selector(rateAction))
-            entry.representedObject = rate
-            entry.state = abs(controller.player.rate - rate) < 0.01 ? .on : .off
-            submenu.addItem(entry)
+            submenu.addItem(sticky(
+                rateLabel(rate),
+                isOn: { [weak self] in abs((self?.controller.player.rate ?? 0) - rate) < 0.01 },
+                select: { [weak self] in self?.controller.setRate(rate) }))
         }
         submenu.addItem(.separator())
         submenu.addItem(disabled("選んだ速度が次回の既定になります"))
@@ -157,10 +159,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
         submenu.addItem(item("小さく", #selector(volumeDownAction), key: "-"))
         submenu.addItem(.separator())
         for volume in controller.settings.volumeLadder {
-            let entry = item(volumeLabel(volume), #selector(volumeAction))
-            entry.representedObject = volume
-            entry.state = abs(controller.player.volume - volume) < 0.005 ? .on : .off
-            submenu.addItem(entry)
+            submenu.addItem(sticky(
+                volumeLabel(volume),
+                isOn: { [weak self] in abs((self?.controller.player.volume ?? 0) - volume) < 0.005 },
+                select: { [weak self] in self?.controller.setVolume(volume) }))
         }
         submenu.addItem(.separator())
         submenu.addItem(disabled("選んだ音量が次回の既定になります"))
@@ -177,18 +179,20 @@ final class MenuBar: NSObject, NSMenuDelegate {
         // 一覧はハードコードしない。AivisSpeech にモデルを足せば勝手に増える
         for speaker in controller.speakers {
             if speaker.styles.count == 1, let style = speaker.styles.first {
-                let entry = item(speaker.name, #selector(speakerAction))
-                entry.representedObject = SpeakerChoice(id: style.id, label: "\(speaker.name) / \(style.name)")
-                entry.state = controller.settings.speakerId == style.id ? .on : .off
-                submenu.addItem(entry)
+                let label = "\(speaker.name) / \(style.name)"
+                submenu.addItem(sticky(
+                    speaker.name,
+                    isOn: { [weak self] in self?.controller.settings.speakerId == style.id },
+                    select: { [weak self] in self?.controller.setSpeaker(id: style.id, label: label) }))
                 continue
             }
             let styles = NSMenu()
             for style in speaker.styles {
-                let entry = item(style.name, #selector(speakerAction))
-                entry.representedObject = SpeakerChoice(id: style.id, label: "\(speaker.name) / \(style.name)")
-                entry.state = controller.settings.speakerId == style.id ? .on : .off
-                styles.addItem(entry)
+                let label = "\(speaker.name) / \(style.name)"
+                styles.addItem(sticky(
+                    style.name,
+                    isOn: { [weak self] in self?.controller.settings.speakerId == style.id },
+                    select: { [weak self] in self?.controller.setSpeaker(id: style.id, label: label) }))
             }
             let parent = NSMenuItem(title: speaker.name, action: nil, keyEquivalent: "")
             parent.submenu = styles
@@ -246,10 +250,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
                 submenu.addItem(entry)
                 continue
             }
-            let entry = item(policy.label, #selector(enginePolicyAction))
-            entry.representedObject = policy.rawValue
-            entry.state = controller.enginePolicy == policy ? .on : .off
-            submenu.addItem(entry)
+            submenu.addItem(sticky(
+                policy.label,
+                isOn: { [weak self] in self?.controller.enginePolicy == policy },
+                select: { [weak self] in self?.controller.setEnginePolicy(policy) }))
         }
         return submenu
     }
@@ -276,11 +280,13 @@ final class MenuBar: NSObject, NSMenuDelegate {
         let submenu = NSMenu()
         let ladder = controller.settings.engineIdleQuitLadder
         for minutes in (ladder.isEmpty ? [15] : ladder).sorted() {
-            let entry = item(minutesLabel(minutes), #selector(engineIdleMinutesAction))
-            entry.representedObject = minutes
-            entry.state = controller.enginePolicy == .idleQuit
-                && controller.settings.engineIdleQuitMinutes == minutes ? .on : .off
-            submenu.addItem(entry)
+            submenu.addItem(sticky(
+                minutesLabel(minutes),
+                isOn: { [weak self] in
+                    self?.controller.enginePolicy == .idleQuit
+                        && self?.controller.settings.engineIdleQuitMinutes == minutes
+                },
+                select: { [weak self] in self?.controller.setEngineIdleMinutes(minutes) }))
         }
         submenu.addItem(.separator())
         submenu.addItem(disabled("段は設定ファイルで足し引きできます"))
@@ -316,6 +322,22 @@ final class MenuBar: NSObject, NSMenuDelegate {
         return entry
     }
 
+    /// チェックの付く項目は、選んでもメニューを閉じない。
+    ///
+    /// 入れた直後に閉じられると、入ったのかどうかを確かめる場所が無い。
+    /// もう一度開いて確かめるくらいなら、開いたままにして目で見たほうが早い。
+    /// 閉じるのはメニューの外を押したときと esc のときだけでいい。
+    /// 「停止」「ログを開く」のような1回きりの項目は今までどおり閉じる
+    private func sticky(
+        _ title: String,
+        isOn: @escaping () -> Bool,
+        select: @escaping () -> Void
+    ) -> NSMenuItem {
+        let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        entry.view = StickyMenuItemView(title: title, isOn: isOn, select: select)
+        return entry
+    }
+
     private func submenu(_ title: String, build: NSMenu) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         entry.submenu = build
@@ -327,16 +349,6 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func toggleAction() { controller.toggle() }
     @objc private func stopAction() { controller.player.stop() }
     @objc private func backAction() { controller.player.previousSentence() }
-
-    @objc private func rateAction(_ sender: NSMenuItem) {
-        guard let rate = sender.representedObject as? Float else { return }
-        controller.setRate(rate)
-    }
-
-    @objc private func volumeAction(_ sender: NSMenuItem) {
-        guard let volume = sender.representedObject as? Float else { return }
-        controller.setVolume(volume)
-    }
 
     @objc private func volumeUpAction() {
         controller.setVolume(controller.player.stepVolume(1))
@@ -366,11 +378,6 @@ final class MenuBar: NSObject, NSMenuDelegate {
         controller.setAutoPlay(!controller.settings.autoPlay)
     }
 
-    @objc private func speakerAction(_ sender: NSMenuItem) {
-        guard let choice = sender.representedObject as? SpeakerChoice else { return }
-        controller.setSpeaker(id: choice.id, label: choice.label)
-    }
-
     @objc private func reloadSpeakersAction() {
         controller.launchEngine()
     }
@@ -384,17 +391,6 @@ final class MenuBar: NSObject, NSMenuDelegate {
     @objc private func clearHistoryAction() { controller.history.clear() }
     @objc private func launchEngineAction() { controller.launchEngine() }
     @objc private func quitEngineAction() { controller.quitEngine() }
-
-    @objc private func engineIdleMinutesAction(_ sender: NSMenuItem) {
-        guard let minutes = sender.representedObject as? Int else { return }
-        controller.setEngineIdleMinutes(minutes)
-    }
-
-    @objc private func enginePolicyAction(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? Int,
-              let policy = Controller.EnginePolicy(rawValue: raw) else { return }
-        controller.setEnginePolicy(policy)
-    }
 
     @objc private func loginItemAction() {
         LoginItem.set(!LoginItem.isEnabled)
@@ -413,12 +409,106 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 }
 
-/// representedObject に入れるための箱。タプルは Objective-C に渡せない
-final class SpeakerChoice: NSObject {
-    let id: Int
-    let label: String
-    init(id: Int, label: String) {
-        self.id = id
-        self.label = label
+/// 選んでも閉じないメニュー項目の中身。
+///
+/// NSMenu は項目を選ぶと必ず閉じる。開いたままにする道は「項目に view を持たせる」しかない。
+/// view を持つ項目は AppKit が勝手に閉じないので、閉じるかどうかをこちらで決められる。
+/// 代わりに見た目は全部こちらで描くことになるので、対象はチェックの付く項目だけに絞っている。
+///
+/// 標準の項目と隣り合うため、字下げと高さは標準に寄せてある。
+/// ここがずれると、同じメニューの中で行が揃わずに目立つ
+final class StickyMenuItemView: NSView {
+
+    private static let font = NSFont.menuFont(ofSize: 0)
+    private static let titleLeading: CGFloat = 22
+    private static let trailing: CGFloat = 24
+    private static let rowHeight = max(20, ceil(NSFont.menuFont(ofSize: 0).boundingRectForFont.height) + 3)
+
+    private let title: String
+    private let isOn: () -> Bool
+    private let select: () -> Void
+    private var isInside = false
+
+    init(title: String, isOn: @escaping () -> Bool, select: @escaping () -> Void) {
+        self.title = title
+        self.isOn = isOn
+        self.select = select
+        let width = (title as NSString)
+            .size(withAttributes: [.font: Self.font]).width + Self.titleLeading + Self.trailing
+        super.init(frame: NSRect(x: 0, y: 0, width: ceil(width), height: Self.rowHeight))
+        autoresizingMask = [.width]
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("使わない") }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach(removeTrackingArea)
+        addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isInside = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isInside = false
+        needsDisplay = true
+    }
+
+    /// 選んでも閉じない。閉じるのはメニューの外を押したときと esc のとき（AppKit 任せ）
+    override func mouseUp(with event: NSEvent) {
+        guard enclosingMenuItem?.isEnabled ?? true else { return }
+        select()
+        // 選び直しは隣のチェックも動く。同じメニューと親をまとめて描き直す
+        var menu = enclosingMenuItem?.menu
+        while let current = menu {
+            for entry in current.items {
+                (entry.view as? StickyMenuItemView)?.needsDisplay = true
+            }
+            menu = current.supermenu
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let enabled = enclosingMenuItem?.isEnabled ?? true
+        let highlighted = enabled && (isInside || enclosingMenuItem?.isHighlighted == true)
+
+        if highlighted {
+            // selectedMenuItemColor は 11.0 で非推奨。いまのメニューの選択色はアクセント色
+            NSColor.controlAccentColor.setFill()
+            NSBezierPath(
+                roundedRect: bounds.insetBy(dx: 5, dy: 0), xRadius: 4, yRadius: 4
+            ).fill()
+        }
+
+        let color: NSColor
+        if !enabled {
+            color = .disabledControlTextColor
+        } else {
+            color = highlighted ? .selectedMenuItemTextColor : .labelColor
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [.font: Self.font, .foregroundColor: color]
+        let size = (title as NSString).size(withAttributes: attributes)
+        (title as NSString).draw(
+            at: NSPoint(x: Self.titleLeading, y: (bounds.height - size.height) / 2),
+            withAttributes: attributes)
+
+        guard isOn() else { return }
+        let configuration = NSImage.SymbolConfiguration(pointSize: Self.font.pointSize, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
+        guard let check = NSImage(systemSymbolName: "checkmark", accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration) else { return }
+        check.draw(in: NSRect(
+            x: 8,
+            y: (bounds.height - check.size.height) / 2,
+            width: check.size.width,
+            height: check.size.height))
     }
 }
