@@ -427,6 +427,11 @@ Codex 側で内部の依頼文が変わった場合は、判定の更新が必�
 入口の回帰テストは `python3 -m unittest discover -s tests -v`。
 仮の HTTP サーバーで、会話だけが届くことと既存通知への転送を確かめます。音は鳴りません。
 
+再生とクリップボードの回帰テストは `bash tests/test_audio.sh`（Mac の音声出力が必要）。
+音量ゼロのテスト音声で、再生停止からの自動復旧・一時停止・復旧上限を確かめます。
+AivisSpeech と普段のクリップボードは使いません。実際の出力機器の切り替えや
+macOS のペースト許可、耳での音質確認は実機で別途確認が必要です。
+
 設計の判断とその理由は [DESIGN.md](DESIGN.md) に書いてあります。
 手を入れる前にそちらを読んでください。
 
@@ -798,6 +803,11 @@ For an existing installation, run `./install-codex.sh` again to update the scrip
 No restart is needed if the configuration stays the same. Updating the app alone
 does not update the installed hook. Run `python3 -m unittest discover -s tests -v`
 to check notification filtering and forwarding with a mock server, without audio.
+
+Run `bash tests/test_audio.sh` on a Mac with an audio output to test recovery from
+stalled playback, pause/resume, recovery limits, and clipboard formats. It uses
+muted test audio, a synthesis stub, and a private test clipboard. Real device
+switches, paste permissions, and perceived audio quality require manual checks.
 
 Design decisions and the reasoning behind them are in [DESIGN.md](DESIGN.md) (Japanese).
 Please read it before changing things.

@@ -18,9 +18,9 @@ final class Player {
         case paused
     }
 
-    private let engine = AVAudioEngine()
-    private let node = AVAudioPlayerNode()
-    private let timePitch = AVAudioUnitTimePitch()
+    private var engine = AVAudioEngine()
+    private var node = AVAudioPlayerNode()
+    private var timePitch = AVAudioUnitTimePitch()
     private let format = AVAudioFormat(
         standardFormatWithSampleRate: Double(Player.sampleRate), channels: 1)!
 
@@ -37,6 +37,14 @@ final class Player {
     private var configObserver: NSObjectProtocol?
     private var deviceListener: AudioObjectPropertyListenerBlock?
     private var pausedNeedsReschedule = false
+    private var watchdogTimer: Timer?
+    private var playbackDeadline = PlaybackDeadline()
+    private var recoveryAttempts = 0
+
+    var audioDiagnostics: [String: Any] {
+        ["outputRunning": engine.isRunning, "scheduled": scheduledCount,
+         "recoveryAttempts": recoveryAttempts]
+    }
 
     private let prefetchDepth = 3
 
@@ -71,35 +79,20 @@ final class Player {
         self.aivis = aivis
         self.settings = settings
 
-        engine.attach(node)
-        engine.attach(timePitch)
-        engine.connect(node, to: timePitch, format: format)
-        engine.connect(timePitch, to: engine.mainMixerNode, format: format)
         timePitch.rate = settings.rate
         node.volume = settings.volume
-        // 引き伸ばし・詰めのときの重ね合わせ回数。既定の 8 より上げると音の濁りが減る。
-        // CPU は食うが、1本の音声を鳴らすだけなので気にする量ではない
-        timePitch.overlap = 16
-        engine.prepare()
-
-        // 出力先が変わったらつなぎ直す。
-        //
-        // AirPods をケースに戻す、ヘッドフォンを挿す、外部ディスプレイを抜く。
-        // このとき AUHAL は既定の出力デバイスを勝手に差し替えるが、グラフ側は
-        // 前のデバイスのフレーム数（mMaxFramesPerSlice）のまま取り残される。
-        // 結果 render err -10874 (kAudioUnitErr_TooManyFramesToProcess) が
-        // 毎コールバック出続け、engine.isRunning は true のまま音だけが消える。
-        // 完了通知も来ないので次の文へ進まず、アプリを再起動するまで無音になる。
-        // 実際にこれで半日気づかず黙っていたことがあるので、必ず拾うこと
-        configObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main
-        ) { [weak self] _ in
-            self?.handleConfigurationChange()
-        }
+        rebuildOutputGraph()
         watchDefaultOutputDevice()
+        // メニューを開いている間も、無音のまま取り残さない。
+        let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            self?.checkPlaybackProgress()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        watchdogTimer = timer
     }
 
     deinit {
+        watchdogTimer?.invalidate()
         if let configObserver {
             NotificationCenter.default.removeObserver(configObserver)
         }
@@ -130,20 +123,26 @@ final class Player {
             return
         }
         if state == .paused {
-            startEngineIfNeeded()
             // つなぎ直しで積んだぶんを捨てているなら、node.play() では何も鳴らない。
             // 止まっていた文から積み直す
             if pausedNeedsReschedule {
                 pausedNeedsReschedule = false
+                recoveryAttempts = 0
+                rebuildOutputGraph()
                 restart(from: currentIndex)
                 return
             }
+            guard startEngineIfNeeded() else { return }
+            playbackDeadline.resetClock()
             node.play()
             state = .playing
             return
         }
         guard state != .playing else { return }
-        startEngineIfNeeded()
+        // 待機中の出力変更には通知が来ないことがある。再生の入口で古い AU を捨てる。
+        rebuildOutputGraph()
+        recoveryAttempts = 0
+        guard startEngineIfNeeded() else { return }
         node.play()
         state = .playing
         startPrefetch()
@@ -153,6 +152,7 @@ final class Player {
     func pause() {
         guard state == .playing else { return }
         node.pause()
+        playbackDeadline.resetClock()
         state = .paused
     }
 
@@ -265,47 +265,90 @@ final class Player {
         }
     }
 
-    /// 出力先が変わったあと、グラフを作り直して鳴っていた文から再開する。
-    /// 接続は張り直さないと古いフレーム数のままになるので、外して張り直す
-    private func handleConfigurationChange() {
-        Log.write("player: 出力先が変わった。engine をつなぎ直す")
+    /// 接続だけの張り直しでは、Audio Unit 内の古い最大フレーム数が残る。
+    /// 出力を含む engine と全ノードを取り替え、現在のデバイスから作り直す。
+    private func rebuildOutputGraph() {
+        let savedRate = timePitch.rate
+        let savedVolume = node.volume
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+        configObserver = nil
+        node.stop()
+        engine.stop()
+        engine = AVAudioEngine()
+        node = AVAudioPlayerNode()
+        timePitch = AVAudioUnitTimePitch()
+        engine.attach(node)
+        engine.attach(timePitch)
+        engine.connect(node, to: timePitch, format: format)
+        engine.connect(timePitch, to: engine.mainMixerNode, format: format)
+        timePitch.rate = savedRate
+        node.volume = savedVolume
+        timePitch.overlap = 16
+        engine.prepare()
+        let observedEngine = engine
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: observedEngine, queue: .main
+        ) { [weak self, weak observedEngine] _ in
+            guard let self, self.engine === observedEngine else { return }
+            self.handleConfigurationChange()
+        }
+    }
 
+    private func handleConfigurationChange() {
+        Log.write("player: 出力構成が変わった。音声エンジンを作り直す")
         let wasPlaying = state == .playing
         let wasPaused = state == .paused
         let resumeIndex = currentIndex
-
-        generation &+= 1          // 古いグラフからの完了通知は捨てる
+        generation &+= 1
         prefetchTask?.cancel()
         prefetchTask = nil
-        engine.stop()
-        node.stop()
-        node.reset()
-        engine.disconnectNodeOutput(node)
-        engine.disconnectNodeOutput(timePitch)
-        engine.connect(node, to: timePitch, format: format)
-        engine.connect(timePitch, to: engine.mainMixerNode, format: format)
-        engine.prepare()
-
+        playbackDeadline.clear()
+        rebuildOutputGraph()
         scheduleIndex = resumeIndex
         scheduledCount = 0
-
         if wasPlaying, !sentences.isEmpty {
             restart(from: resumeIndex)
         } else {
             state = wasPaused ? .paused : .idle
-            // 一時停止のまま待つ場合も、積んだぶんは消えている。
-            // 再開のときに積み直す必要があることを覚えておく
             pausedNeedsReschedule = wasPaused
         }
     }
 
-    private func startEngineIfNeeded() {
-        guard !engine.isRunning else { return }
+    /// isRunning や render 時刻が進んでも、下流の AU が失敗すると完了通知は来ない。
+    /// 合成済みの文の長さと再生速度から、完了の遅れを検出する。合成待ちは数えない。
+    private func checkPlaybackProgress() {
+        guard playbackDeadline.tick(now: ProcessInfo.processInfo.systemUptime,
+                                    rate: Double(rate), playing: state == .playing) else { return }
+        guard recoveryAttempts < 2 else {
+            Log.write("player: 出力の復旧に2回失敗。再試行できる状態で一時停止する")
+            generation &+= 1
+            prefetchTask?.cancel()
+            prefetchTask = nil
+            node.stop()
+            engine.stop()
+            scheduledCount = 0
+            playbackDeadline.clear()
+            pausedNeedsReschedule = true
+            state = .paused
+            onError?("音声出力を復旧できませんでした。出力先を確認して再生してください")
+            return
+        }
+        recoveryAttempts += 1
+        Log.write("player: 再生完了が届かないため出力を復旧 (試行 \(recoveryAttempts)、\(currentIndex + 1)文目)")
+        handleConfigurationChange()
+    }
+
+    private func startEngineIfNeeded() -> Bool {
+        guard !engine.isRunning else { return true }
         do {
             try engine.start()
+            return true
         } catch {
             Log.write("player: engine.start に失敗 \(error.localizedDescription)")
-            onError?("音声エンジンを開始できませんでした")
+            pausedNeedsReschedule = true
+            state = .paused
+            onError?("音声エンジンを開始できませんでした。出力先を確認して再生してください")
+            return false
         }
     }
 
@@ -317,6 +360,9 @@ final class Player {
         node.stop()
         // stop() だけでは積んだぶんが残ることがある。reset() で明示的に捨てる
         node.reset()
+        engine.stop()
+        playbackDeadline.clear()
+        recoveryAttempts = 0
         buffers.removeAll()
         sentences = []
         scheduleIndex = 0
@@ -335,7 +381,8 @@ final class Player {
         scheduleIndex = index
         currentIndex = index
         scheduledCount = 0
-        startEngineIfNeeded()
+        playbackDeadline.clear()
+        guard startEngineIfNeeded() else { return }
         node.play()
         state = .playing
         startPrefetch()
@@ -354,6 +401,8 @@ final class Player {
                 try await self.aivis.ensureRunning()
             } catch {
                 await MainActor.run {
+                    guard generationAtStart == self.generation, !Task.isCancelled else { return }
+                    self.engine.stop()
                     Log.write("player: エンジンを用意できない \(error.localizedDescription)")
                     self.onError?(error.localizedDescription)
                     self.state = .idle
@@ -391,7 +440,10 @@ final class Player {
                 do {
                     let speakerId = await MainActor.run { self.settings.speakerId }
                     let wav = try await self.aivis.synthesize(text: sentence, speakerId: speakerId)
-                    guard let buffer = self.makeBuffer(from: wav) else { continue }
+                    guard let buffer = self.makeBuffer(from: wav), buffer.frameLength > 0 else {
+                        throw NSError(domain: "nagara", code: 1,
+                                      userInfo: [NSLocalizedDescriptionKey: "合成音声を読み込めませんでした"])
+                    }
                     await MainActor.run {
                         guard generationAtStart == self.generation else { return }
                         self.buffers[target] = buffer
@@ -404,10 +456,10 @@ final class Player {
                         return
                     }
                     await MainActor.run {
+                        guard generationAtStart == self.generation else { return }
                         Log.write("player: 合成に失敗 (\(target)文目) \(error.localizedDescription)")
                         self.onError?(error.localizedDescription)
                         // 1文落としても読み進める。1文の失敗で全部止まるほうが困る
-                        guard generationAtStart == self.generation else { return }
                         self.buffers[target] = self.silence()
                         self.pump()
                     }
@@ -426,12 +478,22 @@ final class Player {
             let index = scheduleIndex
             scheduleIndex += 1
             scheduledCount += 1
+            if scheduledCount == 1 {
+                playbackDeadline.begin(duration: Double(buffer.frameLength) / buffer.format.sampleRate)
+                Log.write("player: \(index + 1)/\(sentences.count)文目を再生キューへ")
+            }
             node.scheduleBuffer(buffer, at: nil, options: [], completionCallbackType: .dataPlayedBack) {
                 [weak self] _ in
                 DispatchQueue.main.async {
                     guard let self, generationAtPump == self.generation else { return }
                     self.scheduledCount = max(0, self.scheduledCount - 1)
                     self.currentIndex = min(index + 1, self.sentences.count)
+                    self.recoveryAttempts = 0
+                    self.playbackDeadline.clear()
+                    if self.scheduledCount > 0, let next = self.buffers[self.currentIndex] {
+                        self.playbackDeadline.begin(duration: Double(next.frameLength) / next.format.sampleRate)
+                    }
+                    Log.write("player: \(index + 1)/\(self.sentences.count)文目の再生完了")
                     self.onProgress?(self.currentIndex, self.sentences.count)
                     if self.currentIndex >= self.sentences.count {
                         Log.write("player: 最後まで読み終えた")

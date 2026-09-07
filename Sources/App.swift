@@ -205,6 +205,8 @@ final class Controller {
             "engineRunning": aivis.isEngineRunning,
             "loginItem": LoginItem.isEnabled,
             "version": Bundle.main.shortVersion,
+            "audio": player.audioDiagnostics,
+            "lastError": lastError as Any? ?? NSNull(),
         ]
     }
 
@@ -227,6 +229,7 @@ final class Controller {
 
     func playLatest() {
         if player.state == .paused, loadedItemID != nil {
+            lastError = nil
             player.play()
             return
         }
@@ -274,6 +277,7 @@ final class Controller {
         case .playing:
             player.pause()
         case .paused:
+            lastError = nil
             player.play()
         case .idle:
             playLatest()
@@ -309,17 +313,18 @@ final class Controller {
     /// クリップボードの中身を読む。
     /// 右クリックのサービスが載らないアプリ（Electron 製など）でも、この経路なら通る
     func speakClipboard() {
-        guard let text = NSPasteboard.general.string(forType: .string),
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        else {
-            // 黙って何も起きないのが一番困る。理由は必ず残す
-            Log.write("clipboard: 文字列が入っていないので読めない")
-            lastError = "クリップボードが空です"
+        let pasteboard = NSPasteboard.general
+        switch ClipboardReader.read(from: pasteboard) {
+        case .success(let text):
+            Log.write("clipboard: \(text.count)文字を読む")
+            speak(text: text, source: "クリップボード", autoplay: true, force: true)
+        case .failure(let error):
+            // 本文は記録せず、次に調べられるよう形式とアクセス状態だけを残す。
+            let types = (pasteboard.types ?? []).map(\.rawValue).joined(separator: ",")
+            Log.write("clipboard: \(error.message) (access=\(pasteboard.accessBehavior.rawValue), types=\(types))")
+            lastError = error.message
             refreshUI()
-            return
         }
-        Log.write("clipboard: \(text.count)文字を読む")
-        speak(text: text, source: "クリップボード", autoplay: true, force: true)
     }
 
     // MARK: - 設定

@@ -87,10 +87,13 @@ final class Aivis {
     /// 起動直後のしばらくは見つけ次第 hide し続ける。それでも一瞬出ることはある。
     /// 完全に消したい場合は GUI を持たない AivisSpeech-Engine 単体版に差し替えること。
     func ensureRunning() async throws {
+        try Task.checkCancellation()
         if await isUp() {
+            try Task.checkCancellation()
             lastUsed = Date()
             return
         }
+        try Task.checkCancellation()
         guard settings.launchEngineIfNeeded else { throw AivisError.notRunning }
 
         Log.write("engine: 応答なし。\(settings.engineAppName) を裏で起動する")
@@ -110,8 +113,9 @@ final class Aivis {
 
         // モデルの読み込みがあるので十数秒かかることがある
         for attempt in 1...60 {
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try await Task.sleep(nanoseconds: 1_000_000_000)
             if await isUp() {
+                try Task.checkCancellation()
                 Log.write("engine: \(attempt)秒で応答した")
                 // open の直後は runningApplications にまだ載っていないことがある。
                 // 応答したこの時点なら確実に載っている
