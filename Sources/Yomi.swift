@@ -40,6 +40,9 @@ enum Yomi {
         var seen = Set<String>()
 
         func take(_ word: String, _ sentence: String) {
+            // 空白も1つの語として切られるので、隣とくっつけると「 上下水」のように
+            // 先頭に空白が残る。そのまま候補にすると見送っても一致せず、何度でも出てくる
+            let word = word.trimmingCharacters(in: .whitespacesAndNewlines)
             // 送り仮名の付いた語は外す。「保た」だけを単体で読ませると
             // 「タモテタ」のような妙な読みが返り、食い違いの山になる。
             // 拾いたいのは固有名詞と熟語で、そこは送り仮名を持たない

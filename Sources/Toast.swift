@@ -21,14 +21,14 @@ enum Toast {
         label?.stringValue = text
         if let symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
             icon?.image = image.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 30, weight: .semibold))
+                NSImage.SymbolConfiguration(pointSize: 20, weight: .regular))
             icon?.isHidden = false
         } else {
             icon?.isHidden = true
         }
         // 文字の長さに合わせて窓の大きさを決める。窓の contentView は
         // autoresizing のままなので、中の stack から大きさを聞く
-        let size = stack?.fittingSize.applying(insets: 30, 22) ?? NSSize(width: 280, height: 90)
+        let size = stack?.fittingSize.applying(insets: 22, 14) ?? NSSize(width: 220, height: 60)
         panel.setContentSize(size)
 
         // 本人が見ている画面の中央。マウスのある画面が一番それに近い
@@ -66,7 +66,7 @@ enum Toast {
 
     private static func makePanel() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 280, height: 90),
+            contentRect: NSRect(x: 0, y: 0, width: 220, height: 60),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered, defer: false)
         panel.level = .statusBar
@@ -77,40 +77,43 @@ enum Toast {
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
-        // 音量や輝度の OS 標準の表示と同じ、暗いすりガラス。どちらの外観でも読める
-        panel.appearance = NSAppearance(named: .vibrantDark)
+        // 黒ベースの透過。すりガラスにすると背景の色を拾って重たく見えたので、
+        // 素の黒を薄く敷き、縁だけをうっすら白く引く。
+        // ライトの画面では黒い箱として、ダークの画面では縁と影で浮いて見える。
+        // 透過を強くしすぎると暗い画面で溶けるので、6割強で止めてある
+        panel.appearance = NSAppearance(named: .darkAqua)
 
-        let background = NSVisualEffectView()
-        background.material = .hudWindow
-        background.blendingMode = .behindWindow
-        background.state = .active
+        let background = NSView()
         background.wantsLayer = true
-        background.layer?.cornerRadius = 20
+        background.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.65).cgColor
+        background.layer?.cornerRadius = 14
+        background.layer?.borderWidth = 1
+        background.layer?.borderColor = NSColor.white.withAlphaComponent(0.25).cgColor
         background.layer?.masksToBounds = true
 
         let icon = NSImageView()
-        icon.contentTintColor = .white
+        icon.contentTintColor = NSColor.white.withAlphaComponent(0.9)
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.setContentHuggingPriority(.required, for: .horizontal)
 
         let label = NSTextField(labelWithString: "")
-        label.font = .systemFont(ofSize: 28, weight: .semibold)
-        label.textColor = .white
+        label.font = .systemFont(ofSize: 19, weight: .medium)
+        label.textColor = NSColor.white.withAlphaComponent(0.92)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false
 
         let stack = NSStackView(views: [icon, label])
         stack.orientation = .horizontal
         stack.alignment = .centerY
-        stack.spacing = 14
+        stack.spacing = 10
         stack.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 30),
-            stack.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -30),
-            stack.topAnchor.constraint(equalTo: background.topAnchor, constant: 22),
-            stack.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -22),
+            stack.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 22),
+            stack.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -22),
+            stack.topAnchor.constraint(equalTo: background.topAnchor, constant: 14),
+            stack.bottomAnchor.constraint(equalTo: background.bottomAnchor, constant: -14),
         ])
 
         panel.contentView = background
