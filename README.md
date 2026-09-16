@@ -112,6 +112,7 @@ Stop フックと `/speak` `/stop` が入ります。登録先は `~/.claude/set
 | 停止 | `⌃⌥.` |
 | 再生中の停止 | `Esc`（再生中だけ有効） |
 | クリップボードを読む | `⌃⌥C` |
+| 自動再生の ON/OFF | `⌃⌥A` |
 
 `⌃` は Control、`⌥` は Option です。矢印は**左右が速さ、上下が文の移動**、
 `=` `-` が音量。速度も音量も1段ずつ動き、端では止まります（一周しません）。
@@ -120,6 +121,10 @@ Stop フックと `/speak` `/stop` が入ります。登録先は `~/.claude/set
 
 再生中は `Esc` でも停止できます。この間の最初の `Esc` は nagara が使い、
 停止・一時停止した後は他のアプリの通常の操作に戻ります。自動再生の ON/OFF は変わりません。
+
+`⌃⌥A` は自動再生の切り替えです。ミーティングの前後で何度も触るので、メニューを開かずに
+済むようにしてあります。切り替わった先（**自動再生 ON** / **OFF**）が画面の中央に
+2秒だけ出て消えます。
 
 > `⌥⌘→` / `⌥⌘←` を使っていないのは、Chrome・Safari・VS Code が
 > 「次のタブ／前のタブ」に既定で割り当てているからです。
@@ -152,6 +157,7 @@ nagara --now "すぐ読んで"     # 積んですぐ鳴らす
 
 nagara play | pause | toggle | stop | back | next
 nagara clipboard             # クリップボードの中身を読む
+nagara autoplay              # 自動再生を切り替える（on / off で指定も可）
 nagara rate                  # 1段速く
 nagara rate 1.25             # 速度を指定する
 nagara volume                # 1段大きく
@@ -206,7 +212,7 @@ Safari・Mail・メモ・テキストエディットのような素の AppKit �
 速度 ▸ 速く ⌃⌥→ / 遅く ⌃⌥← / 1.0 … 1.5
 音量 ▸ 大きく ⌃⌥= / 小さく ⌃⌥- / 20% … 100%
 声   ▸ まい / コハク ▸ … / まお ▸ …
-□ 自動再生
+□ 自動再生                  ⌃⌥A
 ─────────────────────────
 履歴 ▸ 直近15件（クリックで再生）
 ─────────────────────────
@@ -220,7 +226,17 @@ nagara を終了
 **自動再生は既定 OFF** です。応答のたびに喋られると邪魔なので、
 「**届いてはいるが鳴っていない**」が通常の状態になります。
 
-再生中に新しいものを再生すると、**新しいほうが優先されて読み替わります。**
+**自動再生で届いたものは、鳴っている間は割り込まず順番を待ちます。** 複数の
+ターミナルで Claude Code や Codex を並べていると、返事が続けて届きます。前のものが
+途中で切られたり、二つが重なったりすると聴き取れません。いまのものを読み終えたら、
+待っていたものがすぐ続きます。待っている件数はメニューの先頭に出ます。
+
+**止めたら、待っていたものも空になります。** `Esc` や `⌃⌥.` で止めたということは
+「いまは音を出してほしくない」ということなので、次のものが即座に続いたりはしません。
+自動再生の設定はそのままで、それ以降に届いたものは今までどおり鳴ります。
+
+本人が明示的に読ませたもの（`⌃⌥C`・右クリック・`nagara --now`・履歴からの再生）は
+待たず、鳴っているものを止めてすぐ読みます。
 
 ---
 
@@ -581,6 +597,7 @@ Copy any text and press `⌃⌥C`. That's it.
 | Stop | `⌃⌥.` |
 | Stop while playing | `Esc` (only active during playback) |
 | Read the clipboard | `⌃⌥C` |
+| Toggle auto-play | `⌃⌥A` |
 
 `⌃` is Control, `⌥` is Option. **Left/right is speed, up/down moves through sentences,
 `=` / `-` is volume.** Both speed and volume move one step at a time and stop at the
@@ -591,6 +608,10 @@ ends — they do not wrap around.
 During playback, `Esc` also stops nagara. The first `Esc` is used by nagara;
 once stopped or paused, it returns to its normal function in other apps.
 This does not change the autoplay setting.
+
+`⌃⌥A` toggles auto-play. You flip it around meetings often enough that opening the menu
+gets old; the new state (**自動再生 ON** / **OFF**) is shown in the centre of the screen
+for two seconds and then fades out.
 
 > `⌥⌘→` / `⌥⌘←` are deliberately avoided: Chrome, Safari and VS Code bind them to
 > next/previous tab. Claiming them globally breaks tab switching everywhere.
@@ -623,6 +644,7 @@ nagara --now "read this now" # queue and play immediately
 
 nagara play | pause | toggle | stop | back | next
 nagara clipboard             # read the clipboard
+nagara autoplay              # toggle auto-play (or: on / off)
 nagara rate                  # one step faster
 nagara rate 1.25             # set the speed
 nagara volume                # one step louder
@@ -691,7 +713,18 @@ Quit nagara
 **Auto-play is off by default.** Being talked at after every response is annoying,
 so "**received but silent**" is the normal state.
 
-Playing something new while audio is running **switches to the new item**.
+**Auto-played items wait their turn while something is playing.** With several
+terminals running Claude Code and Codex side by side, responses arrive back to back.
+Cutting the previous one off, or overlapping two, is unlistenable. When the current
+item finishes, the next one follows immediately. The number waiting is shown at the
+top of the menu.
+
+**Stopping also empties the queue.** Pressing `Esc` or `⌃⌥.` means "no sound right now",
+so the next item does not jump in. The auto-play setting itself is untouched; anything
+that arrives afterwards plays as usual.
+
+Anything you explicitly asked for (`⌃⌥C`, right-click, `nagara --now`, replaying from
+the history) does not wait — it stops whatever is playing and reads right away.
 
 ---
 

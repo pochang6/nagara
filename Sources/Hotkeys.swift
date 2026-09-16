@@ -24,6 +24,7 @@ final class Hotkeys {
         case volumeUp = 8   // ⌃⌥=  大きく
         case volumeDown = 9 // ⌃⌥-  小さく
         case escapeStop = 10 // Esc  再生中だけ停止
+        case autoPlayToggle = 11 // ⌃⌥A  自動再生の ON/OFF
     }
 
     private static weak var current: Hotkeys?
@@ -78,8 +79,11 @@ final class Hotkeys {
         // 音量は矢印が埋まっているので = / -。システム音量の ⌥ 系とは当たらない
         bind(keyCode: UInt32(kVK_ANSI_Equal), modifiers: modifiers, action: .volumeUp)
         bind(keyCode: UInt32(kVK_ANSI_Minus), modifiers: modifiers, action: .volumeDown)
+        // 自動再生の ON/OFF はミーティングの前後など一日に何度も切り替えるので、
+        // メニューを開かずに済ませたい。Esc の二度押しは採らなかった（DESIGN.md 7節）
+        bind(keyCode: UInt32(kVK_ANSI_A), modifiers: modifiers, action: .autoPlayToggle)
 
-        Log.write("hotkeys: ⌃⌥P 再生 / ⌃⌥→ 速く / ⌃⌥← 遅く / ⌃⌥↑ 前の文 / ⌃⌥↓ 次の文 / ⌃⌥= 大きく / ⌃⌥- 小さく / ⌃⌥. 停止 / ⌃⌥C クリップボード")
+        Log.write("hotkeys: ⌃⌥P 再生 / ⌃⌥→ 速く / ⌃⌥← 遅く / ⌃⌥↑ 前の文 / ⌃⌥↓ 次の文 / ⌃⌥= 大きく / ⌃⌥- 小さく / ⌃⌥. 停止 / ⌃⌥C クリップボード / ⌃⌥A 自動再生")
     }
 
     func unregister() {

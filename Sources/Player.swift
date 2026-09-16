@@ -55,6 +55,11 @@ final class Player {
     var onStateChange: ((State) -> Void)?
     var onProgress: ((Int, Int) -> Void)?
     var onError: ((String) -> Void)?
+    /// 最後まで読み終えた（または最後の文を飛ばした）ときだけ呼ぶ。
+    /// 本人の停止や読み込み直しでは呼ばない。順番待ちを進めるかどうかは、この違いで決まる
+    var onFinished: (() -> Void)?
+    /// エンジンを用意できず、読みかけのまま諦めたとき。後ろで待っているものも鳴らせない
+    var onFailed: (() -> Void)?
 
     var rate: Float {
         get { timePitch.rate }
@@ -169,6 +174,12 @@ final class Player {
         Log.write("player: 停止")
     }
 
+    /// 読み終わりとしての停止。本人の停止と区別して、後ろで待っているものへ渡す
+    private func finish() {
+        stop()
+        onFinished?()
+    }
+
     /// 1文戻る。文の境界に着地するので、15秒戻しのように文の途中で始まらない
     func previousSentence() {
         guard !sentences.isEmpty else { return }
@@ -178,7 +189,7 @@ final class Player {
     func nextSentence() {
         guard !sentences.isEmpty else { return }
         guard currentIndex + 1 < sentences.count else {
-            stop()
+            finish()
             return
         }
         restart(from: currentIndex + 1)
@@ -406,6 +417,7 @@ final class Player {
                     Log.write("player: エンジンを用意できない \(error.localizedDescription)")
                     self.onError?(error.localizedDescription)
                     self.state = .idle
+                    self.onFailed?()
                 }
                 return
             }
@@ -497,7 +509,7 @@ final class Player {
                     self.onProgress?(self.currentIndex, self.sentences.count)
                     if self.currentIndex >= self.sentences.count {
                         Log.write("player: 最後まで読み終えた")
-                        self.stop()
+                        self.finish()
                     } else {
                         self.pump()
                     }

@@ -135,6 +135,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
         case "p": return .toggle
         case ".": return .stop
         case "c": return .clipboard
+        case "a": return .autoPlayToggle
         case "=": return .volumeUp
         case "-": return .volumeDown
         default: return nil
@@ -158,6 +159,9 @@ final class MenuBar: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         menu.addItem(disabled(statusLine()))
+        if !controller.waiting.isEmpty {
+            menu.addItem(disabled("　順番待ち \(controller.waiting.count) 件（停止で空になります）"))
+        }
         if let error = controller.lastError {
             menu.addItem(disabled("⚠︎ \(error)"))
         }
@@ -191,6 +195,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
         menu.addItem(sticky(
             "自動再生",
+            shortcut: "a",
             isOn: { [weak self] in self?.controller.settings.autoPlay ?? false },
             select: { [weak self] in self?.autoPlayAction() }))
 
@@ -449,14 +454,17 @@ final class MenuBar: NSObject, NSMenuDelegate {
     /// 「停止」「ログを開く」のような1回きりの項目は今までどおり閉じる
     private func sticky(
         _ title: String,
+        shortcut: String? = nil,
         isOn: @escaping () -> Bool,
         select: @escaping () -> Void
     ) -> NSMenuItem {
         let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        entry.view = StickyMenuItemView(title: title, isOn: isOn, select: { [weak self] in
-            select()
-            self?.refreshOpenMenu()
-        })
+        entry.view = StickyMenuItemView(
+            title: title, shortcut: shortcut.map { "⌃⌥" + $0.uppercased() },
+            isOn: isOn, select: { [weak self] in
+                select()
+                self?.refreshOpenMenu()
+            })
         return entry
     }
 
@@ -476,7 +484,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     // MARK: - 動作
 
     @objc private func toggleAction() { controller.toggle() }
-    @objc private func stopAction() { controller.player.stop() }
+    @objc private func stopAction() { controller.stop() }
     @objc private func backAction() { controller.player.previousSentence() }
 
     @objc private func volumeUpAction() {
@@ -554,16 +562,24 @@ final class StickyMenuItemView: NSView {
     private static let rowHeight = max(20, ceil(NSFont.menuFont(ofSize: 0).boundingRectForFont.height) + 3)
 
     private let title: String
+    /// 右側に薄く出すショートカット。標準の項目がキー等価物で描くものを、こちらは手で描く
+    private let shortcut: String?
     private let isOn: () -> Bool
     private let select: () -> Void
     private var isInside = false
 
-    init(title: String, isOn: @escaping () -> Bool, select: @escaping () -> Void) {
+    init(title: String, shortcut: String? = nil,
+         isOn: @escaping () -> Bool, select: @escaping () -> Void) {
         self.title = title
+        self.shortcut = shortcut
         self.isOn = isOn
         self.select = select
+        let shortcutWidth = shortcut.map {
+            ($0 as NSString).size(withAttributes: [.font: Self.font]).width + 24
+        } ?? 0
         let width = (title as NSString)
             .size(withAttributes: [.font: Self.font]).width + Self.titleLeading + Self.trailing
+            + shortcutWidth
         super.init(frame: NSRect(x: 0, y: 0, width: ceil(width), height: Self.rowHeight))
         autoresizingMask = [.width]
     }
@@ -628,6 +644,18 @@ final class StickyMenuItemView: NSView {
         (title as NSString).draw(
             at: NSPoint(x: Self.titleLeading, y: (bounds.height - size.height) / 2),
             withAttributes: attributes)
+
+        if let shortcut {
+            let shortcutAttributes: [NSAttributedString.Key: Any] = [
+                .font: Self.font,
+                .foregroundColor: highlighted ? color : NSColor.secondaryLabelColor,
+            ]
+            let shortcutSize = (shortcut as NSString).size(withAttributes: shortcutAttributes)
+            (shortcut as NSString).draw(
+                at: NSPoint(x: bounds.width - Self.trailing + 6 - shortcutSize.width,
+                            y: (bounds.height - shortcutSize.height) / 2),
+                withAttributes: shortcutAttributes)
+        }
 
         guard isOn() else { return }
         let configuration = NSImage.SymbolConfiguration(pointSize: Self.font.pointSize, weight: .semibold)

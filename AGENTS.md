@@ -25,6 +25,7 @@ Sources/          メニューバーアプリ本体（swiftc で直接ビルド�
   Yomi.swift      読み間違いの検出。engine と macOS の読みを突き合わせる
   Hotkeys.swift   Carbon の RegisterEventHotKey。許可は要らない
   MenuBar.swift   NSStatusItem のメニュー
+  Toast.swift     画面の中央に一瞬だけ出る文字（自動再生の ON/OFF）
   History.swift   届いたテキストの控えと、積むかどうかの判断
 bin/nagara        CLI（送信と操作）
 hooks/            Claude Code の Stop フック

@@ -20,6 +20,8 @@ final class Controller {
 
     private(set) var speakers: [Speaker] = []
     private(set) var unreadCount = 0
+    /// 自動再生の順番待ち。鳴っている間に届いたものは割り込まず、ここで待つ（DESIGN.md 3.1節）
+    private(set) var waiting: [Utterance] = []
     private var loadedItemID: UUID?
     private(set) var lastError: String?
 
@@ -46,6 +48,8 @@ final class Controller {
             self?.lastError = message
             self?.refreshUI()
         }
+        player.onFinished = { [weak self] in self?.playNextWaiting() }
+        player.onFailed = { [weak self] in self?.dropWaiting(reason: "エンジンを用意できない") }
         history.onChange = { [weak self] in self?.refreshUI() }
 
         let menuBar = MenuBar(controller: self)
@@ -73,7 +77,7 @@ final class Controller {
 
     func shutdown() {
         idleTimer?.invalidate()
-        player.stop()
+        stop()
         hotkeys.unregister()
         ingest?.stop()
         aivis.quitIfWeLaunchedIt()
@@ -149,7 +153,14 @@ final class Controller {
             toggle()
             return status()
         case "/stop":
-            player.stop()
+            stop()
+            return status()
+        case "/autoplay":
+            if let enabled = command.body["enabled"] as? Bool {
+                setAutoPlay(enabled, announce: true)
+            } else {
+                setAutoPlay(!settings.autoPlay, announce: true)
+            }
             return status()
         case "/back":
             player.previousSentence()
@@ -203,6 +214,7 @@ final class Controller {
             "sentence": progress.index,
             "sentences": progress.total,
             "unread": unreadCount,
+            "waiting": waiting.count,
             "autoPlay": settings.autoPlay,
             "speaker": settings.speakerLabel,
             "engineRunning": aivis.isEngineRunning,
@@ -219,17 +231,67 @@ final class Controller {
 
     /// テキストを受け取る。既定では**鳴らさず積むだけ**。
     /// これが「応答のたびに喋られてうざい」を避けるための一番大事な既定値。
+    ///
+    /// 自動再生で鳴らす場合でも、すでに何か鳴っているなら割り込まず順番を待つ。
+    /// 複数のエージェントが続けて返事をしたとき、前の応答が途中で切られるのは聴く側が困る。
+    /// 本人が明示的に読ませたもの（選択テキスト・クリップボード・`--now`）だけは待たせない
     @discardableResult
     func speak(text: String, source: String, autoplay: Bool? = nil, force: Bool = false) -> Bool {
         guard let item = history.add(text: text, source: source, force: force) else { return false }
         unreadCount += 1
         let shouldPlay = autoplay ?? settings.autoPlay
-        if shouldPlay {
-            play(item: item)
-        } else {
+        guard shouldPlay else {
             refreshUI()
+            return true
+        }
+        let explicit = force || autoplay == true
+        if !explicit, player.state != .idle {
+            enqueue(item)
+        } else {
+            play(item: item)
         }
         return true
+    }
+
+    private func enqueue(_ item: Utterance) {
+        // 同じ本文が二重に届くと history は既存の項目を返す。同じものを二度は待たせない
+        guard !waiting.contains(where: { $0.id == item.id }),
+              !(item.id == loadedItemID && player.state != .idle) else {
+            refreshUI()
+            return
+        }
+        waiting.append(item)
+        Log.write("queue: 順番待ちに入れた [\(item.source)] \(item.title)（\(waiting.count)件）")
+        refreshUI()
+    }
+
+    /// 読み終わったら、待っているものをすぐ続ける。間を空けないのは、
+    /// 「終わった」と「次が始まった」の区別が耳で付くほうが、待たされるより自然だから
+    private func playNextWaiting() {
+        guard !waiting.isEmpty else {
+            refreshUI()
+            return
+        }
+        let next = waiting.removeFirst()
+        Log.write("queue: 次を再生 [\(next.source)] \(next.title)（残り\(waiting.count)件）")
+        play(item: next)
+    }
+
+    private func dropWaiting(reason: String) {
+        guard !waiting.isEmpty else { return }
+        Log.write("queue: \(reason)ので順番待ち\(waiting.count)件を捨てた")
+        waiting.removeAll()
+        refreshUI()
+    }
+
+    /// 本人が止めたときの停止。いま鳴っているものだけでなく、順番待ちも空にする。
+    ///
+    /// 止めたということは「いまは音を出してはいけない」という状況で、
+    /// 待っていたものが即座に続いたら Esc を何度も叩く羽目になる。
+    /// ただし自動再生の設定はそのまま。これ以降に届くものは今までどおり鳴る
+    func stop() {
+        dropWaiting(reason: "止められた")
+        player.stop()
     }
 
     func playLatest() {
@@ -308,10 +370,11 @@ final class Controller {
         case .rateDown: setRate(player.stepRate(-1))
         case .back: player.previousSentence()
         case .next: player.nextSentence()
-        case .stop: player.stop()
+        case .stop: stop()
         case .escapeStop:
             // 登録解除より前に届いたキー通知が、停止後に処理される場合がある。
-            if player.state == .playing { player.stop() }
+            if player.state == .playing { stop() }
+        case .autoPlayToggle: setAutoPlay(!settings.autoPlay, announce: true)
         case .clipboard: speakClipboard()
         case .volumeUp: setVolume(player.stepVolume(1))
         case .volumeDown: setVolume(player.stepVolume(-1))
@@ -349,9 +412,16 @@ final class Controller {
         persist()
     }
 
-    func setAutoPlay(_ enabled: Bool) {
+    /// `announce` はメニュー以外から切り替えたとき。メニューはチェックで分かるが、
+    /// ショートカットや CLI では切り替わった先が見えないので、画面の中央に一瞬だけ出す
+    func setAutoPlay(_ enabled: Bool, announce: Bool = false) {
         settings.autoPlay = enabled
+        Log.write("settings: 自動再生を \(enabled ? "ON" : "OFF") にした")
         persist()
+        if announce {
+            Toast.show(enabled ? "自動再生 ON" : "自動再生 OFF",
+                       symbol: enabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+        }
     }
 
     func setSpeaker(id: Int, label: String) {
