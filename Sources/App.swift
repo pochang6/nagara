@@ -37,7 +37,10 @@ final class Controller {
 
         player.rate = settings.rate
         player.volume = settings.volume
-        player.onStateChange = { [weak self] _ in self?.refreshUI() }
+        player.onStateChange = { [weak self] state in
+            self?.hotkeys.setEscapeStopEnabled(state == .playing)
+            self?.refreshUI()
+        }
         player.onProgress = { [weak self] _, _ in self?.refreshUI() }
         player.onError = { [weak self] message in
             self?.lastError = message
@@ -206,6 +209,8 @@ final class Controller {
             "loginItem": LoginItem.isEnabled,
             "version": Bundle.main.shortVersion,
             "audio": player.audioDiagnostics,
+            "menuBar": menuBar?.diagnostics ?? [:],
+            "escapeStopRegistered": hotkeys.escapeStopRegistered,
             "lastError": lastError as Any? ?? NSNull(),
         ]
     }
@@ -304,6 +309,9 @@ final class Controller {
         case .back: player.previousSentence()
         case .next: player.nextSentence()
         case .stop: player.stop()
+        case .escapeStop:
+            // 登録解除より前に届いたキー通知が、停止後に処理される場合がある。
+            if player.state == .playing { player.stop() }
         case .clipboard: speakClipboard()
         case .volumeUp: setVolume(player.stepVolume(1))
         case .volumeDown: setVolume(player.stepVolume(-1))

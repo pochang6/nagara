@@ -13,8 +13,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     init(controller: Controller) {
         self.controller = controller
+        // 左端への初期配置だと、項目が多い Mac ではノッチに隠れて設定を開けない。
+        // 初回だけ右寄りを希望し、それ以降は本人が動かした位置を記憶する（DESIGN 8.2）。
+        let autosaveName = "nagara.status"
+        let positionKey = "NSStatusItem Preferred Position \(autosaveName)"
+        if UserDefaults.standard.object(forKey: positionKey) == nil {
+            UserDefaults.standard.set(0, forKey: positionKey)
+        }
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
+        statusItem.autosaveName = autosaveName
         menu.delegate = self
         // view を持つ項目は action を持たないので、自動判定に任せると無効にされる。
         // 「自動再生」が灰色になってチェックも押せなくなったのはこれ。
@@ -26,6 +34,24 @@ final class MenuBar: NSObject, NSMenuDelegate {
     }
 
     // MARK: - アイコン
+
+    // 起動中なのに見つからない場合、非表示と画面外への配置を区別するため。
+    // 他のアプリや画面の内容は調べず、自分のステータス項目の状態だけを返す。
+    var diagnostics: [String: Any] {
+        let window = statusItem.button?.window
+        return [
+            "visible": statusItem.isVisible,
+            "length": statusItem.length,
+            "button": statusItem.button != nil,
+            "image": statusItem.button?.image != nil,
+            "windowVisible": window?.isVisible ?? false,
+            "frame": window.map { NSStringFromRect($0.frame) } ?? "",
+            "screen": window?.screen.map { NSStringFromRect($0.frame) } ?? "",
+            "unobscuredRightArea": window?.screen.map {
+                $0.auxiliaryTopRightArea.map { NSStringFromRect($0) } ?? ""
+            } ?? "",
+        ]
+    }
 
     // アイコンは「読み上げ」だと分かる吹き出しを基本形にしている。
     // nobetsu が waveform 系を使っているので、そこと silhouette が被らないことを優先した。
@@ -40,6 +66,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     func refresh() {
         guard let button = statusItem.button else { return }
+        button.toolTip = "nagara — 自動再生 \(controller.settings.autoPlay ? "ON" : "OFF")"
         let name = symbolName()
         if let image = NSImage(systemSymbolName: name, accessibilityDescription: "nagara") {
             image.isTemplate = true
@@ -70,6 +97,13 @@ final class MenuBar: NSObject, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if let self, event.keyCode == 53,
+               event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty,
+               self.controller.player.state == .playing {
+                self.controller.perform(.escapeStop)
+                // メニューを閉じる Esc 本来の働きも残す。
+                return event
+            }
             guard let self, let action = MenuBar.action(for: event) else { return event }
             Log.write("menubar: 開いたまま \(action) を受けた")
             self.controller.perform(action)
@@ -138,7 +172,8 @@ final class MenuBar: NSObject, NSMenuDelegate {
         let play = item(playTitle, #selector(toggleAction), key: "p")
         play.isEnabled = controller.history.latest != nil || controller.player.state != .idle
         menu.addItem(play)
-        menu.addItem(item("停止", #selector(stopAction), key: "."))
+        menu.addItem(item(controller.player.state == .playing ? "停止（Esc も可）" : "停止",
+                          #selector(stopAction), key: "."))
         let back = item("1文戻る", #selector(backAction), key: Self.upArrow)
         back.isEnabled = controller.player.state != .idle
         menu.addItem(back)

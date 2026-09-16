@@ -23,12 +23,16 @@ final class Hotkeys {
         case clipboard = 7  // ⌃⌥C  クリップボードを読む
         case volumeUp = 8   // ⌃⌥=  大きく
         case volumeDown = 9 // ⌃⌥-  小さく
+        case escapeStop = 10 // Esc  再生中だけ停止
     }
 
     private static weak var current: Hotkeys?
 
     private var refs: [EventHotKeyRef?] = []
     private var handlerRef: EventHandlerRef?
+    private var escapeRef: EventHotKeyRef?
+
+    var escapeStopRegistered: Bool { escapeRef != nil }
 
     var onAction: ((Action) -> Void)?
 
@@ -79,6 +83,7 @@ final class Hotkeys {
     }
 
     func unregister() {
+        setEscapeStopEnabled(false)
         for ref in refs where ref != nil {
             UnregisterEventHotKey(ref!)
         }
@@ -86,6 +91,29 @@ final class Hotkeys {
         if let handlerRef {
             RemoveEventHandler(handlerRef)
             self.handlerRef = nil
+        }
+    }
+
+    // 常時登録すると、他アプリのキャンセルまで奪ってしまう。
+    // 再生している間だけ借り、停止・一時停止・読み終わりで必ず返す。
+    func setEscapeStopEnabled(_ enabled: Bool) {
+        if !enabled {
+            if let escapeRef {
+                UnregisterEventHotKey(escapeRef)
+                self.escapeRef = nil
+                Log.write("hotkeys: Esc を解除")
+            }
+            return
+        }
+        guard handlerRef != nil, escapeRef == nil else { return }
+        let id = EventHotKeyID(signature: OSType(0x6E67_6172), id: Action.escapeStop.rawValue)
+        let status = RegisterEventHotKey(
+            UInt32(kVK_Escape), 0, id, GetApplicationEventTarget(), 0, &escapeRef)
+        if status == noErr {
+            Log.write("hotkeys: 再生中の Esc 停止を登録")
+        } else {
+            escapeRef = nil
+            Log.write("hotkeys: Esc の登録に失敗 (status=\(status))。⌃⌥. は引き続き使えます")
         }
     }
 

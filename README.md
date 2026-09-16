@@ -110,12 +110,16 @@ Stop フックと `/speak` `/stop` が入ります。登録先は `~/.claude/set
 | 大きく（1段） | `⌃⌥=` |
 | 小さく（1段） | `⌃⌥-` |
 | 停止 | `⌃⌥.` |
+| 再生中の停止 | `Esc`（再生中だけ有効） |
 | クリップボードを読む | `⌃⌥C` |
 
 `⌃` は Control、`⌥` は Option です。矢印は**左右が速さ、上下が文の移動**、
 `=` `-` が音量。速度も音量も1段ずつ動き、端では止まります（一周しません）。
 
 **覚えるのは `⌃⌥P` と `⌃⌥C` の2つで足ります。** 残りはメニューの右側に出ています。
+
+再生中は `Esc` でも停止できます。この間の最初の `Esc` は nagara が使い、
+停止・一時停止した後は他のアプリの通常の操作に戻ります。自動再生の ON/OFF は変わりません。
 
 > `⌥⌘→` / `⌥⌘←` を使っていないのは、Chrome・Safari・VS Code が
 > 「次のタブ／前のタブ」に既定で割り当てているからです。
@@ -575,6 +579,7 @@ Copy any text and press `⌃⌥C`. That's it.
 | Louder (one step) | `⌃⌥=` |
 | Quieter (one step) | `⌃⌥-` |
 | Stop | `⌃⌥.` |
+| Stop while playing | `Esc` (only active during playback) |
 | Read the clipboard | `⌃⌥C` |
 
 `⌃` is Control, `⌥` is Option. **Left/right is speed, up/down moves through sentences,
@@ -582,6 +587,10 @@ Copy any text and press `⌃⌥C`. That's it.
 ends — they do not wrap around.
 
 **You only need to remember two: `⌃⌥P` and `⌃⌥C`.** The rest are shown in the menu.
+
+During playback, `Esc` also stops nagara. The first `Esc` is used by nagara;
+once stopped or paused, it returns to its normal function in other apps.
+This does not change the autoplay setting.
 
 > `⌥⌘→` / `⌥⌘←` are deliberately avoided: Chrome, Safari and VS Code bind them to
 > next/previous tab. Claiming them globally breaks tab switching everywhere.
