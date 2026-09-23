@@ -415,12 +415,19 @@ final class Controller {
     /// `announce` はメニュー以外から切り替えたとき。メニューはチェックで分かるが、
     /// ショートカットや CLI では切り替わった先が見えないので、画面の中央に一瞬だけ出す
     func setAutoPlay(_ enabled: Bool, announce: Bool = false) {
+        let justEnabled = enabled && !settings.autoPlay
         settings.autoPlay = enabled
         Log.write("settings: 自動再生を \(enabled ? "ON" : "OFF") にした")
         persist()
         if announce {
             Toast.show(enabled ? "自動再生 ON" : "自動再生 OFF",
                        symbol: enabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
+        }
+        // 返答の到着直後に ON にしても、その返答を取り残さない。
+        // 再生中・一時停止中は本人の操作を優先し、既読の履歴も読み直さない。
+        // 通常の再生経路を通すことで、エンジンが寝ていれば起動してから読む。
+        if justEnabled, unreadCount > 0, player.state == .idle {
+            playLatest()
         }
     }
 

@@ -452,6 +452,10 @@ Codex 側で内部の依頼文が変わった場合は、判定の更新が必�
 AivisSpeech と普段のクリップボードは使いません。実際の出力機器の切り替えや
 macOS のペースト許可、耳での音質確認は実機で別途確認が必要です。
 
+自動再生の切り替えは `bash tests/test_autoplay.sh` で確認できます。
+ON 前後の返答到着、既読の再生防止、再生中・一時停止中の切り替えを検証します。
+個人設定は使わず、AivisSpeech も起動しません（Mac の音声出力が必要）。
+
 設計の判断とその理由は [DESIGN.md](DESIGN.md) に書いてあります。
 手を入れる前にそちらを読んでください。
 
@@ -850,6 +854,10 @@ Run `bash tests/test_audio.sh` on a Mac with an audio output to test recovery fr
 stalled playback, pause/resume, recovery limits, and clipboard formats. It uses
 muted test audio, a synthesis stub, and a private test clipboard. Real device
 switches, paste permissions, and perceived audio quality require manual checks.
+
+Run `bash tests/test_autoplay.sh` to test replies arriving before and after enabling
+autoplay, already-read replies, and toggling during playback or pause. It uses
+temporary settings and does not launch AivisSpeech; a Mac audio output is required.
 
 Design decisions and the reasoning behind them are in [DESIGN.md](DESIGN.md) (Japanese).
 Please read it before changing things.
