@@ -129,9 +129,26 @@ struct Settings: Codable {
             fresh.save()
             return fresh
         }
+        var settled = decoded
+        settled.settleEnginePolicy()
         // 足りない項目を補ったうえで書き戻す。次回からは素直に読める
-        decoded.save()
-        return decoded
+        settled.save()
+        return settled
+    }
+
+    /// エンジンの方針は「起動したまま／しばらく使わなければ閉じる／終了時だけ閉じる」の三択で、
+    /// 保存上は待ち時間と終了時フラグの2つで表している（DESIGN 8節）。
+    /// 手で書き換えると「分は入っているのに終了時は閉じない」のような三択に無い組み合わせが
+    /// 作れてしまうので、読み込んだ時点で三択のどれかへ寄せる。分が入っていれば分を優先する
+    mutating func settleEnginePolicy() {
+        if engineIdleQuitMinutes < 0 {
+            Log.write("settings: engineIdleQuitMinutes が負だったので 0（閉じない）に直した")
+            engineIdleQuitMinutes = 0
+        }
+        if engineIdleQuitMinutes > 0, !quitEngineOnExit {
+            Log.write("settings: 待ち時間があるのに終了時に閉じない設定だったので、閉じるほうへ揃えた")
+            quitEngineOnExit = true
+        }
     }
 
     func save() {

@@ -57,6 +57,26 @@ ensure_app() {
   die "本体が応答しません（/Applications/nagara.app を起動してください）"
 }
 
+# 辞書は AivisSpeech が持っているので、触る前に engine も起こす。
+# 自分で直接起こさず本体に頼むのは、起こし方・待ち方・エラー文を読み上げと揃えるためと、
+# 「nagara が起こしたもの」として後片付け（しばらく使わなければ閉じる）に乗せるため。
+# 本体は最大60秒待つので、こちらはそれより長く待つ
+ensure_engine() {
+  ensure_app
+  local reply
+  reply="$(curl -sS -m 90 -X POST "http://$HOST:$PORT/engine/ensure" \
+    -H 'Content-Type: application/json' -d '{}')" || die "本体が応答しません"
+  local error
+  error="$(printf '%s' "$reply" | python3 -c '
+import json, sys
+try:
+    print(json.load(sys.stdin).get("error", ""))
+except ValueError:
+    print("本体の返事が読めません")
+')"
+  [ -z "$error" ] || die "$error"
+}
+
 json_text() {
   # 引用符や改行を安全に JSON へ入れる
   python3 -c '
@@ -138,18 +158,24 @@ for row in rows:
 import json, sys
 print(json.dumps({"text": sys.stdin.read()}, ensure_ascii=False))
 ' > /tmp/nagara-yomi-check.json
+        # 本体が engine を起こしてから走査する（起こせなければ理由が返る）
+        STATUS=0
         curl -sS -m 300 -X POST "http://$HOST:$PORT/yomi/check" \
           -H 'Content-Type: application/json' -d @/tmp/nagara-yomi-check.json | python3 -c '
 import json, sys
 data = json.load(sys.stdin)
+if data.get("error"):
+    sys.exit("nagara: " + data["error"])
 rows = data.get("found", [])
 print(str(len(rows)) + "語")
 for row in rows:
     print(row["surface"], "engine=" + row["engine"], "mac=" + row["guess"], sep="\t")
-'
+' || STATUS=$?
         rm -f /tmp/nagara-yomi-check.json
+        exit "$STATUS"
         ;;
       dict)
+        ensure_engine
         curl -sS -m 10 "$ENGINE/user_dict" | python3 -c '
 import json, sys
 for uuid, word in json.load(sys.stdin).items():
@@ -160,6 +186,7 @@ for uuid, word in json.load(sys.stdin).items():
         shift
         SURFACE="${1:-}"; YOMI="${2:-}"; ACCENT="${3:-0}"
         [ -n "$SURFACE" ] && [ -n "$YOMI" ] || die "nagara yomi add <表層> <カタカナ> [アクセント型]"
+        ensure_engine
         UUID="$(curl -sS -m 20 -X POST --get "$ENGINE/user_dict_word" \
           --data-urlencode "surface=$SURFACE" \
           --data-urlencode "pronunciation=$YOMI" \
@@ -187,6 +214,7 @@ print(json.dumps({"surface": sys.argv[1], "ignore": True}, ensure_ascii=False))
       rm)
         shift
         [ -n "${1:-}" ] || die "nagara yomi rm <uuid>"
+        ensure_engine
         curl -sS -m 20 -X DELETE "$ENGINE/user_dict_word/$1" -w '%{http_code}\n'
         ;;
       *)

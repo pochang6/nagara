@@ -10,6 +10,10 @@ final class MenuBar: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
     private var keyMonitor: Any?
+    /// view を持たない標準の項目のうち、開いたまま状態が変わるもの。
+    /// StickyMenuItemView は描くたびに isOn を聞き直すが、標準の項目は作ったときの
+    /// state のままなので、ここで付け直す（DESIGN 8.1）
+    private var liveUpdates: [() -> Void] = []
 
     init(controller: Controller) {
         self.controller = controller
@@ -146,6 +150,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
     /// 速度や音量は先頭の1行にも出ているので、そこも合わせる
     func refreshOpenMenu() {
         menu.items.first?.title = statusLine()
+        liveUpdates.forEach { $0() }
         var menus: [NSMenu] = [menu]
         while let current = menus.popLast() {
             for entry in current.items {
@@ -157,6 +162,7 @@ final class MenuBar: NSObject, NSMenuDelegate {
 
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
+        liveUpdates.removeAll()
 
         menu.addItem(disabled(statusLine()))
         if !controller.waiting.isEmpty {
@@ -350,7 +356,16 @@ final class MenuBar: NSObject, NSMenuDelegate {
             if policy == .idleQuit {
                 // ここの submenu はローカル変数のほう。作る側はメソッド
                 let entry = self.submenu(idleQuitTitle(), build: idleQuitMenu())
-                entry.state = controller.enginePolicy == policy ? .on : .off
+                // 以前は作ったときに一度だけ state を付けていた。開いたまま「起動したままにする」を
+                // 選ぶと隣のチェックだけが動き、こちらにはチェックが残って二つ付いて見えた。
+                // 保存された設定は正しく切り替わっていたので、見た目だけの食い違い
+                let update = { [weak self, weak entry] in
+                    guard let self, let entry else { return }
+                    entry.state = self.controller.enginePolicy == .idleQuit ? .on : .off
+                    entry.title = self.idleQuitTitle()
+                }
+                update()
+                liveUpdates.append(update)
                 submenu.addItem(entry)
                 continue
             }

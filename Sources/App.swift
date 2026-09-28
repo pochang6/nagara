@@ -103,20 +103,50 @@ final class Controller {
         }
     }
 
-    /// 読みの走査だけは engine に何度も聞くので、答えを待たせる。
-    /// 残りは今までどおりその場で返す
+    /// engine を待つ口だけは答えを待たせる。残りは今までどおりその場で返す。
+    ///
+    /// どちらも先に ensureRunning を通す。辞書を触る CLI は以前 engine へ直接つないでいたので、
+    /// 使われずに落ちたあとだと「つながらない」で失敗していた。読み上げと同じ起こし方・
+    /// 待ち方・エラー文に揃え、起こしたのが nagara だという記録もここで付ける
     private func handle(_ command: Ingest.Command, reply: @escaping ([String: Any]) -> Void) {
-        guard command.path == "/yomi/check" else {
-            reply(handle(command))
-            return
-        }
-        let text = command.body["text"] as? String ?? ""
-        Task { [weak self] in
-            let found = await self?.scanReadings(text) ?? []
-            await MainActor.run {
-                reply(["ok": true, "found": found.map(\.dictionary),
-                       "pending": Yomi.load().pending.map(\.dictionary)])
+        switch command.path {
+        case "/engine/ensure":
+            Task { [weak self] in
+                guard let self else { return }
+                let error = await self.ensureEngine()
+                await MainActor.run {
+                    reply(error.map { ["error": $0] } ?? ["ok": true])
+                }
             }
+        case "/yomi/check":
+            let text = command.body["text"] as? String ?? ""
+            Task { [weak self] in
+                guard let self else { return }
+                // 落ちたまま走査すると、全語で読みが取れずに「0語」と答えてしまう
+                if let error = await self.ensureEngine() {
+                    await MainActor.run { reply(["error": error]) }
+                    return
+                }
+                let found = await self.scanReadings(text)
+                await MainActor.run {
+                    reply(["ok": true, "found": found.map(\.dictionary),
+                           "pending": Yomi.load().pending.map(\.dictionary)])
+                }
+            }
+        default:
+            reply(handle(command))
+        }
+    }
+
+    /// 起きていれば何もしない。落ちていれば起こして応答を待つ。失敗したらその理由
+    private func ensureEngine() async -> String? {
+        do {
+            try await aivis.ensureRunning()
+            await MainActor.run { self.refreshUI() }
+            return nil
+        } catch {
+            Log.write("engine: 起こせなかった \(error.localizedDescription)")
+            return error.localizedDescription
         }
     }
 
@@ -454,7 +484,9 @@ final class Controller {
             switch self {
             case .keepRunning: return "起動したままにする"
             case .idleQuit: return "しばらく使わなければ閉じる"
-            case .quitOnExit: return "nagara の終了時に閉じる"
+            // 「しばらく使わなければ閉じる」も終了時には閉じる。
+            // 独立したオプションに見えないよう「だけ」を付けて三択の1つだと分かるようにした
+            case .quitOnExit: return "nagara の終了時だけ閉じる"
             }
         }
     }
